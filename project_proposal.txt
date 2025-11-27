@@ -1,0 +1,7 @@
+You are an experienced data scientist and software developer. I need your help to define the .clinerules and implementation plan for a limited analytics library. The basic specifications are as follows:
+
+The main function is to construct networks between the authors of social media posts and the persons, locations and organizations that they mention in their posts. As such the NER analysis need to be applied to textual material using a state-of-the-art open source model designed for NER on multilingual data. The user should be able to engage with a minimal website where they can upload .ndjson or .csv files that contain data from social media platforms. The user needs to specify the author column and the column that stores the post text. The analytics engine should then conduct NER extraction from the text and create a directed network where post-author -> NER extracted element (person, location, organization). If an author mentions the name of another author, a connection should be created in similar fashion. 
+
+Key specifications:
+
+- All backend needs to be 

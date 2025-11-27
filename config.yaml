@@ -1,0 +1,73 @@
+# Social Network Analytics Configuration
+
+# NER Model Configuration
+model:
+  name: "Davlan/xlm-roberta-base-ner-hrl"  # Multilingual NER model with Danish support
+  cache_dir: "./models"
+  device: "cuda"  # Options: 'cuda', 'cpu', 'mps' (for Apple Silicon)
+  confidence_threshold: 0.85  # Minimum confidence for entity extraction (0.0-1.0)
+
+# Processing Configuration
+processing:
+  batch_size: 32  # Number of texts to process in one GPU batch
+  chunk_size: 10000  # Number of rows to read from file at once
+  max_sequence_length: 512  # Maximum token length (model limit)
+  use_fp16: true  # Use half-precision for faster inference (GPU only)
+
+# Entity Resolution Configuration
+entity_resolution:
+  normalize_case: true  # Convert entities to lowercase for matching
+  normalize_whitespace: true  # Collapse multiple spaces
+  match_authors: true  # Detect when entities match author names
+
+# Caching Configuration
+cache:
+  enabled: true
+  directory: "./cache/ner_results"
+  max_age_days: 30  # Auto-delete cache entries older than this
+
+# Language Detection Configuration
+language:
+  detect: true  # Enable automatic language detection
+  store_metadata: true  # Store detected language in results
+
+# Output Configuration
+output:
+  directory: "./output"
+  formats:
+    - gexf  # PRIMARY: Gephi native format
+    - graphml  # NetworkX format
+    - json  # D3.js compatible
+    - csv  # Simple edge list
+  include_statistics: true
+  save_metadata: true
+
+# Logging Configuration
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "logs/app.log"
+  console: true
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Visualization Configuration
+visualization:
+  force_atlas_iterations: 100  # Higher = better layout, slower
+  node_size_scale: 10  # Multiplier for node sizes
+  edge_thickness_scale: 2  # Multiplier for edge thickness
+  color_scheme:
+    author: "#1f77b4"  # Blue
+    person: "#ff7f0e"  # Orange
+    location: "#2ca02c"  # Green
+    organization: "#d62728"  # Red
+
+# Performance Configuration
+performance:
+  max_file_size_mb: 500  # Maximum file size to process
+  memory_limit_gb: 8  # Approximate memory limit
+  gpu_memory_fraction: 0.8  # Fraction of GPU memory to use
+
+# Network Construction
+network:
+  create_author_author_edges: true  # Create edges when authors mention each other
+  min_edge_weight: 1  # Minimum mentions to create edge
+  directed: true  # Create directed graph (author -> entity)

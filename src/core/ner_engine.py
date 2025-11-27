@@ -1,0 +1,300 @@
+"""Named Entity Recognition engine with caching and language detection."""
+from typing import List, Dict, Optional
+import torch
+from transformers import pipeline
+from tqdm import tqdm
+import hashlib
+import json
+from pathlib import Path
+from diskcache import Cache
+from langdetect import detect, LangDetectException
+
+
+class NEREngine:
+    """Extract named entities from text with caching and language detection."""
+    
+    def __init__(
+        self,
+        model_name: str = "Davlan/xlm-roberta-base-ner-hrl",
+        device: Optional[str] = None,
+        confidence_threshold: float = 0.85,
+        cache_dir: str = "./cache/ner_results",
+        enable_cache: bool = True
+    ):
+        """
+        Initialize NER engine with caching.
+        
+        Args:
+            model_name: HuggingFace model name
+            device: Device to use ('cuda', 'cpu', or None for auto)
+            confidence_threshold: Minimum confidence score for entities
+            cache_dir: Directory for caching NER results
+            enable_cache: Enable/disable result caching
+        """
+        self.model_name = model_name
+        self.confidence_threshold = confidence_threshold
+        self.enable_cache = enable_cache
+        
+        # Initialize cache
+        if enable_cache:
+            Path(cache_dir).mkdir(parents=True, exist_ok=True)
+            self.cache = Cache(cache_dir)
+        else:
+            self.cache = None
+        
+        # Determine device
+        if device is None:
+            self.device = 0 if torch.cuda.is_available() else -1
+        elif device == "cuda":
+            if not torch.cuda.is_available():
+                print("⚠️  Warning: CUDA not available, falling back to CPU")
+                self.device = -1
+            else:
+                self.device = 0
+        else:
+            self.device = -1
+        
+        # Load model
+        print(f"🔄 Loading NER model: {model_name}")
+        print(f"📱 Device: {'GPU (CUDA)' if self.device >= 0 else 'CPU'}")
+        
+        self.nlp = pipeline(
+            "ner",
+            model=model_name,
+            aggregation_strategy="simple",
+            device=self.device
+        )
+        
+        print("✅ Model loaded successfully!")
+        if enable_cache:
+            print(f"💾 Cache enabled at: {cache_dir}")
+    
+    def detect_language(self, text: str) -> str:
+        """
+        Detect language of text.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            ISO language code (e.g., 'en', 'da', 'unknown')
+        """
+        try:
+            # Try to detect language
+            lang = detect(text)
+            return lang
+        except LangDetectException:
+            # If detection fails, return unknown
+            return 'unknown'
+    
+    def _get_cache_key(self, text: str) -> str:
+        """
+        Generate cache key for text.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Cache key (hash)
+        """
+        # Create key from text + model + threshold
+        key_str = f"{text}|{self.model_name}|{self.confidence_threshold}"
+        return hashlib.md5(key_str.encode()).hexdigest()
+    
+    def extract_entities_batch(
+        self,
+        texts: List[str],
+        batch_size: int = 32,
+        show_progress: bool = True,
+        detect_languages: bool = True
+    ) -> tuple[List[List[Dict]], List[str]]:
+        """
+        Extract entities from multiple texts with caching.
+        
+        Args:
+            texts: List of text strings
+            batch_size: Number of texts to process at once
+            show_progress: Show progress bar
+            detect_languages: Detect language for each text
+            
+        Returns:
+            Tuple of (entity lists, detected languages)
+        """
+        all_results = []
+        all_languages = []
+        cache_hits = 0
+        cache_misses = 0
+        
+        # Check cache first
+        texts_to_process = []
+        texts_indices = []
+        
+        for i, text in enumerate(texts):
+            # Detect language if requested
+            if detect_languages:
+                lang = self.detect_language(text)
+                all_languages.append(lang)
+            else:
+                all_languages.append('unknown')
+            
+            # Check cache
+            if self.enable_cache and self.cache is not None:
+                cache_key = self._get_cache_key(text)
+                cached_result = self.cache.get(cache_key)
+                
+                if cached_result is not None:
+                    all_results.append(cached_result)
+                    cache_hits += 1
+                else:
+                    all_results.append(None)  # Placeholder
+                    texts_to_process.append(text)
+                    texts_indices.append(i)
+                    cache_misses += 1
+            else:
+                all_results.append(None)
+                texts_to_process.append(text)
+                texts_indices.append(i)
+        
+        if self.enable_cache:
+            print(f"💾 Cache: {cache_hits} hits, {cache_misses} misses")
+        
+        # Process uncached texts
+        if texts_to_process:
+            iterator = range(0, len(texts_to_process), batch_size)
+            if show_progress:
+                iterator = tqdm(
+                    iterator, 
+                    desc="Extracting entities",
+                    total=(len(texts_to_process) + batch_size - 1) // batch_size
+                )
+            
+            for i in iterator:
+                batch = texts_to_process[i:i + batch_size]
+                batch_indices = texts_indices[i:i + batch_size]
+                
+                try:
+                    # Run NER on batch
+                    batch_results = self.nlp(batch)
+                    
+                    # Filter by confidence and clean results
+                    for j, (result, original_idx) in enumerate(zip(batch_results, batch_indices)):
+                        cleaned = self._clean_entities(result)
+                        all_results[original_idx] = cleaned
+                        
+                        # Cache result
+                        if self.enable_cache and self.cache is not None:
+                            cache_key = self._get_cache_key(texts_to_process[i + j])
+                            self.cache.set(cache_key, cleaned)
+                    
+                    # Clear GPU cache
+                    if self.device >= 0:
+                        torch.cuda.empty_cache()
+                        
+                except Exception as e:
+                    print(f"❌ Error processing batch: {e}")
+                    # Add empty results for failed batch
+                    for original_idx in batch_indices:
+                        if all_results[original_idx] is None:
+                            all_results[original_idx] = []
+        
+        return all_results, all_languages
+    
+    def extract_entities(self, text: str) -> List[Dict]:
+        """
+        Extract entities from single text.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            List of entity dictionaries
+        """
+        results, _ = self.extract_entities_batch([text], show_progress=False)
+        return results[0]
+    
+    def _clean_entities(self, entities: List[Dict]) -> List[Dict]:
+        """
+        Clean and filter entity results.
+        
+        Args:
+            entities: Raw entity results from pipeline
+            
+        Returns:
+            Cleaned entity list
+        """
+        cleaned = []
+        
+        for entity in entities:
+            # Filter by confidence
+            if entity['score'] < self.confidence_threshold:
+                continue
+            
+            # Standardize entity type labels
+            entity_type = entity['entity_group']
+            
+            # Map to standard labels
+            if entity_type in ['PER', 'PERSON']:
+                entity_type = 'PER'
+            elif entity_type in ['LOC', 'LOCATION']:
+                entity_type = 'LOC'
+            elif entity_type in ['ORG', 'ORGANIZATION']:
+                entity_type = 'ORG'
+            else:
+                # Skip MISC and other types
+                continue
+            
+            cleaned.append({
+                'text': entity['word'].strip(),
+                'type': entity_type,
+                'score': entity['score'],
+                'start': entity['start'],
+                'end': entity['end']
+            })
+        
+        return cleaned
+    
+    def clear_cache(self) -> None:
+        """Clear all cached NER results."""
+        if self.cache is not None:
+            self.cache.clear()
+            print("🗑️  Cache cleared")
+    
+    def get_cache_stats(self) -> Dict:
+        """Get cache statistics."""
+        if self.cache is not None:
+            return {
+                'size': len(self.cache),
+                'size_bytes': self.cache.volume()
+            }
+        return {'size': 0, 'size_bytes': 0}
+
+
+# Example usage
+if __name__ == "__main__":
+    # Initialize engine with caching
+    engine = NEREngine(enable_cache=True)
+    
+    # Single text
+    text = "John Smith works at Microsoft in Copenhagen."
+    entities = engine.extract_entities(text)
+    print("Entities:", entities)
+    
+    # Batch processing with language detection
+    texts = [
+        "Angela Merkel visited Paris last week.",
+        "Apple Inc. announced a new product in California.",
+        "Statsministeren mødtes med embedsmænd i København."  # Danish
+    ]
+    results, languages = engine.extract_entities_batch(texts, detect_languages=True)
+    
+    for text, entities, lang in zip(texts, results, languages):
+        print(f"\nText: {text}")
+        print(f"Language: {lang}")
+        print(f"Entities: {entities}")
+    
+    # Cache stats
+    print(f"\nCache stats: {engine.get_cache_stats()}")
+    
+    # Test cache hit
+    print("\n--- Testing cache hit ---")
+    results2, _ = engine.extract_entities_batch(texts)  # Should hit cache

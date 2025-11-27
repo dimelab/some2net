@@ -1,0 +1,340 @@
+# Social Media Network Analytics Library - CLI Rules and Specifications
+
+## Project Overview
+A Python-based analytics library for constructing networks between social media post authors and the entities (persons, locations, organizations) they mention. The system performs Named Entity Recognition (NER) on multilingual social media text and generates directed networks for analysis.
+
+## Core Requirements
+
+### 1. Backend Technology Stack
+- **Language**: Python 3.9+
+- **Package Management**: setup.py (not pyproject.toml)
+- **NER Model**: Hugging Face transformer model (multilingual, Danish support)
+- **Recommended Model**: `Davlan/xlm-roberta-base-ner-hrl` or `xlm-roberta-large-finetuned-conll03-english`
+- **GPU Acceleration**: CUDA-enabled PyTorch required
+- **Core Libraries**:
+  - transformers (Hugging Face)
+  - torch (with CUDA support)
+  - pandas (data handling)
+  - networkx (network construction)
+  - fastapi (web backend)
+  - uvicorn (ASGI server)
+
+### 2. Frontend Technology Stack
+- **Framework**: Streamlit (minimal, Python-based) OR Flask with minimal HTML/JS
+- **Recommended**: Streamlit for rapid prototyping with minimal code
+- **Features Required**:
+  - File upload widget (.csv, .ndjson)
+  - Column selector dropdowns (author, text)
+  - **Entity type checkboxes (PER, LOC, ORG) - user selectable**
+  - Progress bar for processing with percentage and ETA
+  - **Force Atlas 2 network visualization preview**
+  - Interactive network with zoom/pan controls
+  - Node coloring by entity type
+  - Download buttons for network exports (GEXF primary)
+  - Basic network statistics display
+  - Cache management (clear cache button)
+  - Language distribution chart
+
+### 3. Data Input Specifications
+- **Supported Formats**: 
+  - .csv (any delimiter, auto-detected)
+  - .ndjson (newline-delimited JSON)
+- **Required Columns** (user-specified):
+  - Author column (string identifier)
+  - Text column (post content)
+- **Optional Columns**:
+  - Timestamp (for temporal analysis)
+  - Post ID (for tracking)
+- **File Size Handling**:
+  - Chunked reading for files >100MB
+  - Batch processing (configurable batch size)
+  - Memory-mapped processing for very large files
+
+### 4. NER Processing Pipeline
+- **Model Selection Criteria**:
+  - Multilingual support (minimum: Danish, English)
+  - Entity types: PER (Person), LOC (Location), ORG (Organization)
+  - Recommended: `Davlan/xlm-roberta-base-ner-hrl` (supports 10 high-resource languages)
+  - Alternative: `FacebookAI/xlm-roberta-large-finetuned-conll03-english`
+- **Processing Configuration**:
+  - Batch size: 32 (adjustable based on GPU memory)
+  - Max sequence length: 512 tokens
+  - Entity confidence threshold: 0.85 (configurable)
+- **Language Detection**: 
+  - Use `langdetect` for automatic language identification per post
+  - Store detected language in metadata
+  - Use language info to optimize NER processing
+  - Per-post language tagging for analysis
+- **Caching Strategy**:
+  - Cache NER results to disk (JSON format)
+  - Cache key: hash of (text content + model name + confidence threshold)
+  - Check cache before running NER on duplicate texts
+  - Clear cache option in UI
+  - Cache location: `./cache/ner_results/`
+  - Automatic cache cleanup for old entries (>30 days)
+
+### 5. Network Construction Rules
+- **Node Types**:
+  - Author nodes (from author column)
+  - Entity nodes (PER, LOC, ORG from NER)
+- **Edge Types**:
+  - Author → Person (mentions)
+  - Author → Location (mentions)
+  - Author → Organization (mentions)
+  - Author → Author (when author name detected in text)
+- **Edge Attributes**:
+  - weight (frequency of mention)
+  - entity_type (PER/LOC/ORG/AUTHOR)
+  - source_post_ids (list of post IDs)
+  - first_mention (timestamp if available)
+- **Node Attributes**:
+  - node_type (author/person/location/organization)
+  - mention_count (total mentions)
+  - post_count (for authors only)
+
+### 6. Entity Resolution Strategy
+- **Basic Deduplication**:
+  - Case-insensitive matching (primary method)
+  - Whitespace normalization
+  - Simple string matching: "john smith" = "John Smith" = "JOHN SMITH"
+  - No fuzzy matching in initial prototype (exact normalized matches only)
+  - Same entity name across different posts treated as same entity
+- **Author-Entity Matching**:
+  - Detect when entity name matches author name
+  - Create author-to-author edges for social network
+- **Multi-word Entity Handling**:
+  - Preserve full entity spans (e.g., "New York City")
+  - Token-based matching for author names in text
+
+### 7. Output Specifications
+- **Network Export Formats**:
+  - **GEXF (.gexf) - PRIMARY FORMAT** - Gephi native format, main export
+  - GraphML (.graphml) - secondary format for compatibility
+  - JSON (.json) - node-link format for D3.js
+  - Edge list CSV (.csv) - simple format
+  - Adjacency matrix (.csv) - for numerical analysis
+- **Metadata Export**:
+  - Processing statistics (JSON)
+  - Entity frequency tables (CSV)
+  - Author statistics (CSV)
+  - Language distribution (JSON)
+  - Processing cache manifest (JSON)
+- **Network Statistics**:
+  - Node count by type
+  - Edge count by type
+  - Density
+  - Average degree
+  - Connected components count
+  - Top 10 most mentioned entities
+  - Language distribution across posts
+- **Visualization**:
+  - Force Atlas 2 layout preview (in-browser)
+  - Interactive network preview with basic controls
+  - Node coloring by type (author/person/location/organization)
+  - Edge thickness by weight
+  - Zoom and pan controls
+
+### 8. Project Structure
+```
+social-network-analytics/
+├── setup.py
+├── README.md
+├── requirements.txt
+├── .clinerules (this file)
+├── src/
+│   ├── __init__.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── ner_engine.py          # NER processing with caching
+│   │   ├── network_builder.py     # Network construction
+│   │   ├── data_loader.py         # File I/O handling
+│   │   ├── entity_resolver.py     # Entity deduplication (simple)
+│   │   └── language_detector.py   # Language detection per post
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── model_manager.py       # Model download & caching
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── preprocessing.py       # Text cleaning
+│   │   ├── validators.py          # Input validation
+│   │   ├── exporters.py           # Network export (GEXF primary)
+│   │   ├── cache_manager.py       # NER results caching
+│   │   └── visualizer.py          # Force Atlas layout & preview
+│   └── cli/
+│       ├── __init__.py
+│       └── app.py                 # Streamlit app with viz
+├── tests/
+│   ├── __init__.py
+│   ├── test_ner_engine.py
+│   ├── test_network_builder.py
+│   ├── test_data_loader.py
+│   └── test_cache_manager.py
+├── examples/
+│   ├── sample_data.csv
+│   ├── sample_data.ndjson
+│   └── example_usage.py
+├── models/                        # Model cache directory
+│   └── .gitkeep
+└── cache/                         # NER results cache
+    └── ner_results/
+        └── .gitkeep
+```
+
+### 9. Performance Requirements
+- **Processing Speed**:
+  - Target: 100-500 posts/second on GPU (depends on post length)
+  - Batch processing with progress tracking
+- **Memory Management**:
+  - Stream large files (don't load entirely into memory)
+  - Clear GPU cache between batches
+  - Maximum RAM usage: 8GB for processing
+- **Model Loading**:
+  - Cache model locally after first download
+  - Model size: ~1GB expected
+  - First-run download time: 2-5 minutes
+
+### 10. Error Handling & Validation
+- **Input Validation**:
+  - Check file format before processing
+  - Verify required columns exist
+  - Detect encoding issues (try UTF-8, Latin-1, CP1252)
+  - Handle empty/null values gracefully
+- **Processing Errors**:
+  - Skip malformed posts with logging
+  - Continue processing on single-post failures
+  - Generate error report for failed posts
+- **User Feedback**:
+  - Clear error messages
+  - Validation warnings before processing
+  - Processing logs available for download
+
+### 11. Configuration Management
+- **Config File**: `config.yaml` or environment variables
+- **Configurable Parameters**:
+  - NER model name/path
+  - Batch size
+  - Confidence threshold
+  - Max sequence length
+  - Entity types to extract
+  - Fuzzy matching threshold
+  - GPU device ID
+  - Cache directory path
+
+### 12. Testing Requirements
+- **Unit Tests**:
+  - NER extraction accuracy
+  - Network construction logic
+  - File parsing for both formats
+  - Entity resolution
+- **Integration Tests**:
+  - End-to-end processing pipeline
+  - Multiple file format handling
+- **Test Data**:
+  - Small sample files (included)
+  - Multilingual test cases (Danish, English)
+  - Edge cases (empty posts, special characters)
+
+### 13. Documentation Requirements
+- **README.md**:
+  - Installation instructions
+  - Quick start guide
+  - Configuration options
+  - Example usage
+- **API Documentation**:
+  - Docstrings for all public functions
+  - Type hints throughout
+- **User Guide**:
+  - How to prepare data
+  - How to interpret results
+  - Visualization recommendations
+
+### 14. Dependencies (requirements.txt)
+```
+torch>=2.0.0
+transformers>=4.30.0
+pandas>=2.0.0
+networkx>=3.0
+streamlit>=1.25.0
+langdetect>=1.0.9
+numpy>=1.24.0
+tqdm>=4.65.0
+pyyaml>=6.0
+plotly>=5.14.0
+streamlit-plotly-events>=0.0.6
+fa2>=0.3.5
+diskcache>=5.6.0
+```
+
+### 15. Setup.py Requirements
+- **Package Name**: `social-network-analytics`
+- **Version**: 0.1.0
+- **Entry Points**:
+  - Console script: `sna-web` (launches web interface)
+  - Console script: `sna-cli` (command-line interface)
+- **Classifiers**:
+  - Development Status :: 3 - Alpha
+  - Intended Audience :: Science/Research
+  - Topic :: Text Processing :: Linguistic
+  - License :: OSI Approved :: MIT License
+  - Programming Language :: Python :: 3.9+
+
+### 16. Future Enhancements (Out of Scope for Prototype)
+- Database backend for persistent storage
+- User authentication
+- Temporal network analysis
+- Advanced entity resolution (coreference resolution)
+- Sentiment analysis integration
+- Real-time API data collection
+- Advanced visualization dashboard
+- Multi-user support
+- Docker containerization
+
+### 17. Known Limitations
+- No persistent storage (session-based only)
+- Basic entity deduplication (no ML-based coreference)
+- Limited to entities detected by pre-trained model
+- No real-time processing
+- Single-user application
+
+### 18. Compliance & Ethics
+- **Data Privacy**:
+  - No data stored permanently
+  - Session data cleared after processing
+  - User responsible for data permissions
+- **Usage Notice**:
+  - Display terms of use on first run
+  - Warn about potential privacy implications
+  - Remind users about platform terms of service
+
+## Implementation Priority
+1. **Phase 1** (Core functionality):
+   - Data loader (.csv, .ndjson)
+   - NER engine integration
+   - Basic network construction
+   - GraphML export
+
+2. **Phase 2** (Usability):
+   - Streamlit web interface
+   - Progress tracking
+   - Multiple export formats
+   - Basic statistics
+
+3. **Phase 3** (Enhancement):
+   - Entity resolution
+   - Configuration management
+   - Error handling & logging
+   - Network preview visualization
+
+## Success Criteria
+- Process 10,000 posts in under 5 minutes on GPU
+- Support files up to 500MB
+- Accurate NER for Danish and English (F1 > 0.80)
+- Generate valid network exports readable by Gephi
+- Intuitive UI requiring no technical documentation
+
+## Notes
+- GPU is assumed available; provide CPU fallback with warning
+- Model download happens automatically on first run
+- Consider adding example Jupyter notebook for programmatic use
+- Keep dependencies minimal to ease installation
+
