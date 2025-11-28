@@ -253,6 +253,115 @@ loader = DataLoader()
 df = loader.load_csv("file.csv", encoding='iso-8859-1')
 ```
 
+## Error Handling
+
+The library includes comprehensive error handling with user-friendly messages:
+
+### Custom Exceptions
+
+```python
+from src.core.exceptions import (
+    FileNotFoundError,
+    ColumnNotFoundError,
+    NERProcessingError,
+    format_error_for_user
+)
+
+try:
+    # Your code here
+    process_data("data.csv", "author", "text")
+
+except FileNotFoundError as e:
+    print(format_error_for_user(e, include_details=True))
+    # Output: ❌ Error: File not found: data.csv
+    #            Please check the file path and ensure the file exists.
+
+except ColumnNotFoundError as e:
+    print(format_error_for_user(e, include_details=True))
+    # Output: ❌ Error: Column 'author' not found in data
+    #            Available columns: 'user', 'text', 'timestamp'
+```
+
+### Error Tracking
+
+Track and export errors during processing:
+
+```python
+from src.utils.logger import ErrorTracker
+
+tracker = ErrorTracker()
+
+for post in posts:
+    try:
+        process_post(post)
+    except Exception as e:
+        tracker.add_error(e, context="post processing", post_id=post.id)
+        continue
+
+# Export error report
+if tracker.has_errors():
+    tracker.export_to_json("./output/errors.json")
+    tracker.export_to_text("./output/errors.txt")
+    print(f"Completed with {len(tracker)} errors")
+```
+
+### Logging
+
+Centralized logging with file and console output:
+
+```python
+from src.utils.logger import setup_logger
+
+logger = setup_logger("my_app", level="INFO", log_dir="./logs")
+
+logger.info("Processing started")
+logger.warning("Low confidence in entity detection")
+logger.error("Failed to process post #12345")
+```
+
+See [ERROR_HANDLING_GUIDE.md](ERROR_HANDLING_GUIDE.md) for complete documentation.
+
+## Testing
+
+The library includes 400+ tests with comprehensive coverage:
+
+### Running Tests
+
+```bash
+# Install test dependencies
+pip install pytest pytest-cov
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test categories
+pytest -m unit -v              # Unit tests only
+pytest -m integration -v       # Integration tests only
+pytest -m "not slow" -v        # Skip slow tests
+pytest -m edge_case -v         # Edge case tests
+pytest -m performance -v       # Performance benchmarks
+
+# With coverage report
+pytest --cov=src --cov-report=html --cov-report=term-missing tests/
+```
+
+### Test Categories
+
+- **Unit Tests**: Individual module testing (250+ tests)
+- **Integration Tests**: End-to-end pipeline testing (35+ tests)
+- **Edge Case Tests**: Boundary conditions and unusual inputs (48 tests)
+- **Error Handling Tests**: Exception and error tracking (42 tests)
+- **Performance Tests**: Benchmarks and scalability (16 tests)
+
+### Performance Benchmarks
+
+- ✅ 1,000 posts: < 5 seconds
+- ✅ 10,000 posts: < 10 seconds
+- ✅ Throughput: > 100 posts/second
+- ✅ Linear scaling verified
+
+See [TESTING_GUIDE.md](TESTING_GUIDE.md) for detailed testing documentation.
+
 ## Development
 
 ### Running Tests
@@ -260,11 +369,16 @@ df = loader.load_csv("file.csv", encoding='iso-8859-1')
 # Install development dependencies
 pip install -e ".[dev]"
 
-# Run tests
-pytest tests/
+# Run full test suite
+pytest tests/ -v
 
-# With coverage
-pytest --cov=src tests/
+# Run with coverage
+pytest --cov=src --cov-report=html tests/
+
+# Run specific test files
+pytest tests/test_error_handling.py -v
+pytest tests/test_edge_cases.py -v
+pytest tests/test_performance.py -v
 ```
 
 ### Code Quality
@@ -284,23 +398,42 @@ mypy src/
 ```
 social-network-analytics/
 ├── src/
-│   ├── core/              # Core processing modules
-│   │   ├── data_loader.py
-│   │   ├── ner_engine.py
-│   │   ├── entity_resolver.py
-│   │   └── network_builder.py
-│   ├── utils/             # Utility modules
-│   │   ├── exporters.py
-│   │   └── visualizer.py
-│   └── cli/               # User interfaces
-│       └── app.py
-├── tests/                 # Test suite
-├── examples/              # Example data and scripts
-├── models/                # Model cache
-├── cache/                 # NER results cache
-├── logs/                  # Application logs
-├── config.yaml            # Configuration
-└── requirements.txt       # Dependencies
+│   ├── core/                    # Core processing modules
+│   │   ├── data_loader.py       # CSV/NDJSON loading
+│   │   ├── ner_engine.py        # Named entity recognition
+│   │   ├── entity_resolver.py   # Entity deduplication
+│   │   ├── network_builder.py   # Graph construction
+│   │   ├── pipeline.py          # End-to-end pipeline
+│   │   └── exceptions.py        # Custom exceptions
+│   ├── utils/                   # Utility modules
+│   │   ├── exporters.py         # Network export
+│   │   ├── visualizer.py        # Visualization
+│   │   └── logger.py            # Logging & error tracking
+│   └── cli/                     # User interfaces
+│       ├── app.py               # Streamlit web UI
+│       └── cli.py               # Command-line tool
+├── tests/                       # Test suite (400+ tests)
+│   ├── conftest.py              # Shared fixtures
+│   ├── test_error_handling.py   # Error handling tests
+│   ├── test_edge_cases.py       # Edge case tests
+│   ├── test_performance.py      # Performance benchmarks
+│   └── test_*.py                # Module-specific tests
+├── examples/                    # Example data and scripts
+│   ├── sample_data.csv          # Example CSV
+│   ├── test_*.py                # Example usage
+│   └── usage_example.ipynb      # Jupyter notebook
+├── models/                      # Model cache (auto-created)
+├── cache/                       # NER results cache
+├── logs/                        # Application logs
+├── output/                      # Export output directory
+├── config.yaml                  # Configuration file
+├── pytest.ini                   # Test configuration
+├── requirements.txt             # Dependencies
+├── README.md                    # This file
+├── ERROR_HANDLING_GUIDE.md      # Error handling docs
+├── TESTING_GUIDE.md             # Testing documentation
+├── CHANGELOG.md                 # Version history
+└── setup.py                     # Package setup
 ```
 
 ## Citation
