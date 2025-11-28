@@ -5,6 +5,26 @@ from .ner_engine import NEREngine
 from .entity_resolver import EntityResolver
 from .network_builder import NetworkBuilder
 from .pipeline import SocialNetworkPipeline, process_social_media_data
+from .exceptions import (
+    SNAException,
+    UserError,
+    ProcessingError,
+    CriticalError,
+    FileNotFoundError,
+    InvalidFileFormatError,
+    ColumnNotFoundError,
+    EmptyDataError,
+    EncodingError,
+    NERProcessingError,
+    EntityResolutionError,
+    NetworkConstructionError,
+    ExportError,
+    ModelLoadError,
+    GPUError,
+    OutOfMemoryError,
+    handle_error,
+    format_error_for_user
+)
 
 __all__ = [
     'DataLoader',
@@ -12,5 +32,24 @@ __all__ = [
     'EntityResolver',
     'NetworkBuilder',
     'SocialNetworkPipeline',
-    'process_social_media_data'
+    'process_social_media_data',
+    # Exceptions
+    'SNAException',
+    'UserError',
+    'ProcessingError',
+    'CriticalError',
+    'FileNotFoundError',
+    'InvalidFileFormatError',
+    'ColumnNotFoundError',
+    'EmptyDataError',
+    'EncodingError',
+    'NERProcessingError',
+    'EntityResolutionError',
+    'NetworkConstructionError',
+    'ExportError',
+    'ModelLoadError',
+    'GPUError',
+    'OutOfMemoryError',
+    'handle_error',
+    'format_error_for_user'
 ]

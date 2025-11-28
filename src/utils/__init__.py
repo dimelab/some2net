@@ -1,4 +1,4 @@
-"""Utility modules for export and visualization."""
+"""Utility modules for export, visualization, and logging."""
 
 from .exporters import (
     export_gexf,
@@ -10,6 +10,13 @@ from .exporters import (
     export_all_formats
 )
 from .visualizer import NetworkVisualizer
+from .logger import (
+    setup_logger,
+    ErrorTracker,
+    error_context,
+    get_log_files,
+    cleanup_old_logs
+)
 
 __all__ = [
     'export_gexf',
@@ -19,5 +26,11 @@ __all__ = [
     'export_adjacency_matrix',
     'export_statistics',
     'export_all_formats',
-    'NetworkVisualizer'
+    'NetworkVisualizer',
+    # Logging
+    'setup_logger',
+    'ErrorTracker',
+    'error_context',
+    'get_log_files',
+    'cleanup_old_logs'
 ]
