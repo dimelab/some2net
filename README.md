@@ -26,19 +26,19 @@ A Python library for constructing social networks from social media posts using 
 ### Quick Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/social-network-analytics.git
-cd social-network-analytics
+# Install directly from GitHub
+pip install git+https://github.com/dimelab/some2net
+
+# Or clone for development
+git clone https://github.com/dimelab/some2net.git
+cd some2net
 
 # Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install package in development mode
+# Install in development mode
 pip install -e .
-
-# Or install from requirements.txt
-pip install -r requirements.txt
 ```
 
 ### Verify Installation
