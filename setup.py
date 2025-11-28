@@ -63,6 +63,7 @@ setup(
     entry_points={
         'console_scripts': [
             'sna-web=cli.app:main',
+            'sna-cli=cli.cli:main',
         ],
     },
 
