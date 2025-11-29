@@ -588,7 +588,8 @@ def display_results(graph, stats, layout_iterations):
                 file_name="network.gexf",
                 mime="application/xml",
                 use_container_width=True,
-                type="primary"
+                type="primary",
+                key="download_gexf"
             )
 
     # Secondary formats
@@ -603,7 +604,8 @@ def display_results(graph, stats, layout_iterations):
                     data=f.read(),
                     file_name="network.graphml",
                     mime="application/xml",
-                    use_container_width=True
+                    use_container_width=True,
+                    key="download_graphml"
                 )
 
     with col2:
@@ -614,7 +616,8 @@ def display_results(graph, stats, layout_iterations):
                     data=f.read(),
                     file_name="network.json",
                     mime="application/json",
-                    use_container_width=True
+                    use_container_width=True,
+                    key="download_json"
                 )
 
     with col3:
@@ -625,7 +628,8 @@ def display_results(graph, stats, layout_iterations):
                     data=f.read(),
                     file_name="network_edgelist.csv",
                     mime="text/csv",
-                    use_container_width=True
+                    use_container_width=True,
+                    key="download_edgelist"
                 )
 
     # Statistics
@@ -636,7 +640,8 @@ def display_results(graph, stats, layout_iterations):
                 data=f.read(),
                 file_name="statistics.json",
                 mime="application/json",
-                use_container_width=True
+                use_container_width=True,
+                key="download_statistics"
             )
 
     # Processing summary

@@ -42,17 +42,40 @@ class NEREngine:
         else:
             self.cache = None
         
-        # Determine device
+        # Determine device with better CUDA error handling
         if device is None:
-            self.device = 0 if torch.cuda.is_available() else -1
-        elif device == "cuda":
-            if not torch.cuda.is_available():
-                print("⚠️  Warning: CUDA not available, falling back to CPU")
+            try:
+                # Check if CUDA is available and properly initialized
+                if torch.cuda.is_available():
+                    # Try to initialize CUDA
+                    torch.cuda.init()
+                    torch.cuda.current_device()
+                    self.device = 0
+                    print("✅ GPU (CUDA) detected and initialized")
+                else:
+                    self.device = -1
+                    print("ℹ️  No GPU detected, using CPU")
+            except Exception as e:
+                print(f"⚠️  CUDA initialization failed: {e}")
+                print("ℹ️  Falling back to CPU mode")
                 self.device = -1
-            else:
-                self.device = 0
+        elif device == "cuda":
+            try:
+                if not torch.cuda.is_available():
+                    print("⚠️  Warning: CUDA requested but not available, falling back to CPU")
+                    self.device = -1
+                else:
+                    torch.cuda.init()
+                    torch.cuda.current_device()
+                    self.device = 0
+                    print("✅ GPU (CUDA) initialized")
+            except Exception as e:
+                print(f"⚠️  CUDA initialization failed: {e}")
+                print("ℹ️  Falling back to CPU mode")
+                self.device = -1
         else:
             self.device = -1
+            print("ℹ️  Using CPU mode")
         
         # Load model
         print(f"🔄 Loading NER model: {model_name}")
