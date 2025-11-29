@@ -235,20 +235,24 @@ def main():
         # Column selection
         st.header("2️⃣ Select Columns")
 
-        # Smart column detection
+        # Smart column detection (only if not already selected)
         # Try to find author column
-        author_default_index = 0
-        for preferred in ['author_full', 'author', 'username', 'user']:
-            if preferred in preview_df.columns:
-                author_default_index = list(preview_df.columns).index(preferred)
-                break
+        if 'author_col_selection' not in st.session_state:
+            author_default_index = 0
+            for preferred in ['author_full', 'author', 'username', 'user']:
+                if preferred in preview_df.columns:
+                    author_default_index = list(preview_df.columns).index(preferred)
+                    break
+            st.session_state.author_col_selection = author_default_index
 
         # Try to find text column
-        text_default_index = 0
-        for preferred in ['body', 'text', 'content', 'message', 'post']:
-            if preferred in preview_df.columns:
-                text_default_index = list(preview_df.columns).index(preferred)
-                break
+        if 'text_col_selection' not in st.session_state:
+            text_default_index = 0
+            for preferred in ['body', 'text', 'content', 'message', 'post']:
+                if preferred in preview_df.columns:
+                    text_default_index = list(preview_df.columns).index(preferred)
+                    break
+            st.session_state.text_col_selection = text_default_index
 
         col1, col2 = st.columns(2)
 
@@ -256,17 +260,23 @@ def main():
             author_col = st.selectbox(
                 "👤 Author Column",
                 options=preview_df.columns,
-                index=author_default_index,
-                help="Column containing post authors/usernames"
+                index=st.session_state.author_col_selection,
+                help="Column containing post authors/usernames",
+                key="author_column_select"
             )
+            # Update session state with current selection
+            st.session_state.author_col_selection = list(preview_df.columns).index(author_col)
 
         with col2:
             text_col = st.selectbox(
                 "💬 Text Column",
                 options=preview_df.columns,
-                index=text_default_index,
-                help="Column containing post text/content"
+                index=st.session_state.text_col_selection,
+                help="Column containing post text/content",
+                key="text_column_select"
             )
+            # Update session state with current selection
+            st.session_state.text_col_selection = list(preview_df.columns).index(text_col)
 
         # Show sample data with selected columns
         st.caption("Sample data with selected columns:")
