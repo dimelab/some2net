@@ -1,7 +1,7 @@
 """Named Entity Recognition engine with caching and language detection."""
 from typing import List, Dict, Optional
 import torch
-from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
+from transformers import pipeline, AutoModelForTokenClassification, XLMRobertaTokenizer
 from tqdm import tqdm
 import hashlib
 import json
@@ -59,11 +59,11 @@ class NEREngine:
         print(f"📱 Device: {'GPU (CUDA)' if self.device >= 0 else 'CPU'}")
 
         try:
-            # Explicitly load tokenizer and model to avoid fast tokenizer issues
-            print("📥 Loading tokenizer...")
-            tokenizer = AutoTokenizer.from_pretrained(
+            # Explicitly load tokenizer using the slow XLMRobertaTokenizer class
+            # This avoids the fast tokenizer bug with vocab_file
+            print("📥 Loading tokenizer (slow tokenizer)...")
+            tokenizer = XLMRobertaTokenizer.from_pretrained(
                 model_name,
-                use_fast=False,  # Force slow tokenizer
                 add_prefix_space=True
             )
 
