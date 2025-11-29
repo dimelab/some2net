@@ -312,9 +312,14 @@ class NEREngine:
             else:
                 # Skip MISC and other types
                 continue
-            
+
+            # Filter out single-character entities (noise like "A", "G", ".")
+            entity_text = entity['word'].strip()
+            if len(entity_text) < 2:
+                continue
+
             cleaned.append({
-                'text': entity['word'].strip(),
+                'text': entity_text,
                 'type': entity_type,
                 'score': entity['score'],
                 'start': entity['start'],

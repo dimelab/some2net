@@ -235,12 +235,28 @@ def main():
         # Column selection
         st.header("2️⃣ Select Columns")
 
+        # Smart column detection
+        # Try to find author column
+        author_default_index = 0
+        for preferred in ['author_full', 'author', 'username', 'user']:
+            if preferred in preview_df.columns:
+                author_default_index = list(preview_df.columns).index(preferred)
+                break
+
+        # Try to find text column
+        text_default_index = 0
+        for preferred in ['body', 'text', 'content', 'message', 'post']:
+            if preferred in preview_df.columns:
+                text_default_index = list(preview_df.columns).index(preferred)
+                break
+
         col1, col2 = st.columns(2)
 
         with col1:
             author_col = st.selectbox(
                 "👤 Author Column",
                 options=preview_df.columns,
+                index=author_default_index,
                 help="Column containing post authors/usernames"
             )
 
@@ -248,6 +264,7 @@ def main():
             text_col = st.selectbox(
                 "💬 Text Column",
                 options=preview_df.columns,
+                index=text_default_index,
                 help="Column containing post text/content"
             )
 
