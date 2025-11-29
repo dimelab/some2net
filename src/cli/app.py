@@ -284,17 +284,21 @@ def main():
         col1, col2 = st.columns([3, 1])
         with col1:
             process_button = st.button(
-                "🚀 Start Processing",
+                "🚀 Start Processing" if not st.session_state.processed else "🔄 Reprocess",
                 type="primary",
-                use_container_width=True,
-                disabled=st.session_state.processed
+                use_container_width=True
             )
         with col2:
-            if st.button("🔄 Reset", use_container_width=True):
+            if st.button("🗑️ Clear All", use_container_width=True):
                 st.session_state.clear()
                 st.rerun()
 
         if process_button:
+            # Clear previous results before reprocessing
+            st.session_state.processed = False
+            st.session_state.graph = None
+            st.session_state.stats = None
+
             process_data_with_pipeline(
                 str(temp_path),
                 file_type,
