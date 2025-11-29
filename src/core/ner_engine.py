@@ -57,15 +57,33 @@ class NEREngine:
         # Load model
         print(f"🔄 Loading NER model: {model_name}")
         print(f"📱 Device: {'GPU (CUDA)' if self.device >= 0 else 'CPU'}")
-        
-        self.nlp = pipeline(
-            "ner",
-            model=model_name,
-            aggregation_strategy="simple",
-            device=self.device
-        )
-        
-        print("✅ Model loaded successfully!")
+
+        try:
+            # Try loading with use_fast=False to avoid tokenizer issues
+            self.nlp = pipeline(
+                "ner",
+                model=model_name,
+                aggregation_strategy="simple",
+                device=self.device,
+                use_fast=False  # Use slow tokenizer to avoid vocab_file issues
+            )
+            print("✅ Model loaded successfully!")
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to load with slow tokenizer, trying fast tokenizer...")
+            try:
+                # Fallback: try with default settings
+                self.nlp = pipeline(
+                    "ner",
+                    model=model_name,
+                    aggregation_strategy="simple",
+                    device=self.device
+                )
+                print("✅ Model loaded successfully!")
+            except Exception as e2:
+                print(f"❌ Error loading model: {e2}")
+                print(f"💡 Try running: python -c \"from transformers import AutoTokenizer, AutoModelForTokenClassification; AutoTokenizer.from_pretrained('{model_name}'); AutoModelForTokenClassification.from_pretrained('{model_name}')\"")
+                raise RuntimeError(f"Failed to load NER model. Original error: {e}. Fallback error: {e2}")
+
         if enable_cache:
             print(f"💾 Cache enabled at: {cache_dir}")
     
