@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Network Visualization</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        #container {
+            width: 100%;
+            height: 800px;
+            position: relative;
+            background: #fafafa;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 250px;
+        }
+        #controls h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 16px;
+            color: #333;
+        }
+        #controls button {
+            display: block;
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        #controls button:hover {
+            background: #f0f0f0;
+            border-color: #999;
+        }
+        #controls button:active {
+            background: #e0e0e0;
+        }
+        #controls label {
+            display: block;
+            margin-top: 12px;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+        #controls input[type="range"] {
+            width: 100%;
+            margin: 5px 0;
+        }
+        #controls input[type="checkbox"] {
+            margin-right: 5px;
+        }
+        .control-value {
+            font-weight: bold;
+            color: #333;
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        #stats {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            font-size: 12px;
+            color: #666;
+        }
+        #stats .stat-item {
+            margin: 3px 0;
+        }
+        #stats .stat-value {
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.0/dist/graphology.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/sigma.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.0/index.min.js"></script>
+</head>
+<body>
+    <div id="container">
+        <div id="controls">
+            <h3>Layout Controls</h3>
+            <button id="start-layout">▶️ Start Layout</button>
+            <button id="stop-layout">⏸️ Stop Layout</button>
+            <button id="reset-layout">🔄 Reset</button>
+
+            <label>
+                Gravity: <span id="gravity-value" class="control-value">1.0</span>
+                <input type="range" id="gravity" min="0" max="5" step="0.1" value="1.0">
+            </label>
+
+            <label>
+                Scaling: <span id="scaling-value" class="control-value">10</span>
+                <input type="range" id="scaling" min="1" max="50" step="1" value="10">
+            </label>
+
+            <label>
+                Edge Weight: <span id="edge-weight-value" class="control-value">1.0</span>
+                <input type="range" id="edge-weight" min="0" max="2" step="0.1" value="1.0">
+            </label>
+
+            <div class="checkbox-label">
+                <input type="checkbox" id="barnes-hut" checked>
+                <span>Barnes-Hut Optimization</span>
+            </div>
+        </div>
+
+        <div id="stats">
+            <div class="stat-item">Nodes: <span id="node-count" class="stat-value">0</span></div>
+            <div class="stat-item">Edges: <span id="edge-count" class="stat-value">0</span></div>
+        </div>
+    </div>
+
+    <script>
+        // Graph data will be injected here
+        const graphData = {{GRAPH_DATA}};
+
+        // Create graph
+        const graph = new graphology.Graph();
+
+        // Add nodes and edges
+        graphData.nodes.forEach(node => {
+            graph.addNode(node.key, {
+                label: node.label,
+                size: node.size,
+                color: node.color,
+                x: Math.random(),
+                y: Math.random()
+            });
+        });
+
+        graphData.edges.forEach(edge => {
+            try {
+                graph.addEdge(edge.source, edge.target, {
+                    weight: edge.weight,
+                    size: Math.min(edge.weight * 0.5, 5)
+                });
+            } catch (e) {
+                // Skip duplicate edges
+                console.warn('Skipping edge:', edge, e.message);
+            }
+        });
+
+        // Update stats
+        document.getElementById('node-count').textContent = graph.order;
+        document.getElementById('edge-count').textContent = graph.size;
+
+        // Create Sigma renderer
+        const container = document.getElementById('container');
+        const renderer = new Sigma(graph, container, {
+            renderEdgeLabels: false,
+            defaultNodeColor: '#999',
+            defaultEdgeColor: '#ccc',
+            labelSize: 14,
+            labelWeight: 'bold',
+            labelColor: { color: '#000' },
+            minCameraRatio: 0.1,
+            maxCameraRatio: 10
+        });
+
+        // Force Atlas 2 settings
+        let layoutRunning = false;
+        let layoutInterval = null;
+        let sensibleSettings = {
+            adjustSizes: false,
+            barnesHutOptimize: true,
+            barnesHutTheta: 1.2,
+            edgeWeightInfluence: 1.0,
+            gravity: 1.0,
+            linLogMode: false,
+            outboundAttractionDistribution: true,
+            scalingRatio: 10,
+            slowDown: 1,
+            strongGravityMode: false
+        };
+
+        // Layout controls
+        document.getElementById('start-layout').addEventListener('click', () => {
+            if (!layoutRunning) {
+                layoutRunning = true;
+                layoutInterval = setInterval(() => {
+                    graphologyLibrary.layoutForceAtlas2.assign(graph, {
+                        iterations: 2,
+                        settings: sensibleSettings
+                    });
+                    renderer.refresh();
+                }, 50);
+            }
+        });
+
+        document.getElementById('stop-layout').addEventListener('click', () => {
+            if (layoutRunning) {
+                layoutRunning = false;
+                if (layoutInterval) {
+                    clearInterval(layoutInterval);
+                    layoutInterval = null;
+                }
+            }
+        });
+
+        document.getElementById('reset-layout').addEventListener('click', () => {
+            // Stop layout if running
+            if (layoutRunning) {
+                layoutRunning = false;
+                if (layoutInterval) {
+                    clearInterval(layoutInterval);
+                    layoutInterval = null;
+                }
+            }
+
+            // Randomize positions
+            graph.forEachNode((node) => {
+                graph.setNodeAttribute(node, 'x', Math.random());
+                graph.setNodeAttribute(node, 'y', Math.random());
+            });
+            renderer.refresh();
+        });
+
+        // Update settings
+        document.getElementById('gravity').addEventListener('input', (e) => {
+            sensibleSettings.gravity = parseFloat(e.target.value);
+            document.getElementById('gravity-value').textContent = e.target.value;
+        });
+
+        document.getElementById('scaling').addEventListener('input', (e) => {
+            sensibleSettings.scalingRatio = parseFloat(e.target.value);
+            document.getElementById('scaling-value').textContent = e.target.value;
+        });
+
+        document.getElementById('edge-weight').addEventListener('input', (e) => {
+            sensibleSettings.edgeWeightInfluence = parseFloat(e.target.value);
+            document.getElementById('edge-weight-value').textContent = e.target.value;
+        });
+
+        document.getElementById('barnes-hut').addEventListener('change', (e) => {
+            sensibleSettings.barnesHutOptimize = e.target.checked;
+        });
+
+        // Initial layout
+        console.log('Running initial layout...');
+        graphologyLibrary.layoutForceAtlas2.assign(graph, {
+            iterations: 100,
+            settings: sensibleSettings
+        });
+        renderer.refresh();
+        console.log('Initial layout complete');
+
+        // Node hover events
+        renderer.on('enterNode', ({ node }) => {
+            renderer.getGraph().setNodeAttribute(node, 'highlighted', true);
+        });
+
+        renderer.on('leaveNode', ({ node }) => {
+            renderer.getGraph().setNodeAttribute(node, 'highlighted', false);
+        });
+    </script>
+</body>
+</html>

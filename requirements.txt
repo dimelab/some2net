@@ -14,7 +14,7 @@ streamlit>=1.25.0
 
 # Visualization
 plotly>=5.14.0
-#fa2>=0.3.5
+# fa2 removed - using front-end Sigma.js for Force Atlas 2 visualization
 
 # NLP utilities
 langdetect>=1.0.9

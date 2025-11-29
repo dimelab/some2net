@@ -8,7 +8,7 @@ A Python library for constructing social networks from social media posts using 
 - 📊 **Network Construction** - Automatic graph building from entity mentions
 - 🚀 **GPU Acceleration** - Fast processing with CUDA support
 - 💾 **Smart Caching** - Disk-based caching for faster reprocessing
-- 📈 **Interactive Visualization** - Force Atlas 2 layout with Plotly
+- 📈 **Interactive Visualization** - Front-end Force Atlas 2 layout with Sigma.js
 - 📁 **Multiple Export Formats** - GEXF (primary), GraphML, JSON, CSV
 - 🎯 **Batch Processing** - Memory-efficient handling of large datasets
 - 🌐 **Web Interface** - Easy-to-use Streamlit UI
@@ -58,7 +58,14 @@ python -c "from core.ner_engine import NEREngine; print('Success!')"
 Launch the Streamlit web application:
 
 ```bash
+# Run on default port (8501)
 streamlit run src/cli/app.py
+
+# Run on custom port
+streamlit run src/cli/app.py --server.port 8080
+
+# Run on specific address and port
+streamlit run src/cli/app.py --server.address 0.0.0.0 --server.port 8080
 ```
 
 Then:
@@ -458,6 +465,8 @@ MIT License - see LICENSE file for details
 - [Hugging Face Transformers](https://huggingface.co/transformers/) for NER models
 - [NetworkX](https://networkx.org/) for network analysis
 - [Streamlit](https://streamlit.io/) for web interface
+- [Sigma.js](https://www.sigmajs.org/) for interactive network visualization
+- [Graphology](https://graphology.github.io/) for Force Atlas 2 implementation
 - NER model: [Davlan/xlm-roberta-base-ner-hrl](https://huggingface.co/Davlan/xlm-roberta-base-ner-hrl)
 
 ## Support

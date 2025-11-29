@@ -41,8 +41,9 @@ setup(
         'tqdm>=4.65.0',
         'pyyaml>=6.0',
         'plotly>=5.14.0',
-        'fa2>=0.3.5',
+        # fa2 removed - using front-end Sigma.js for Force Atlas 2 visualization
         'diskcache>=5.6.0',
+        'chardet>=5.0.0',
     ],
 
     # Optional dependencies

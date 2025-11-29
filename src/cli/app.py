@@ -13,6 +13,7 @@ Features:
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from pathlib import Path
 import sys
@@ -501,7 +502,7 @@ def display_results(graph, stats, layout_iterations):
     st.header("5️⃣ Network Visualization")
 
     try:
-        with st.spinner(f"🎨 Creating Force Atlas 2 visualization ({layout_iterations} iterations)..."):
+        with st.spinner("🎨 Preparing interactive Force Atlas 2 visualization..."):
             viz = NetworkVisualizer()
 
             # Limit visualization for very large networks
@@ -514,22 +515,31 @@ def display_results(graph, stats, layout_iterations):
                 top_node_ids = [n[0] for n in top_nodes]
                 display_graph = graph.subgraph(top_node_ids).copy()
 
-            fig = viz.create_interactive_plot(
-                display_graph,
-                title="Social Network - Force Atlas 2 Layout",
-                width=1200,
-                height=800,
-                layout_iterations=layout_iterations
+            # Export graph data for Sigma.js
+            graph_data = viz.export_for_sigma(display_graph)
+
+            # Load HTML template
+            template_path = Path(__file__).parent / 'templates' / 'sigma_viewer.html'
+            with open(template_path, 'r') as f:
+                html_template = f.read()
+
+            # Inject graph data
+            html_content = html_template.replace(
+                '{{GRAPH_DATA}}',
+                json.dumps(graph_data)
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            # Display in Streamlit
+            components.html(html_content, height=850, scrolling=False)
 
             st.caption("""
             **How to interact:**
             - 🖱️ Hover over nodes to see details
             - 🔍 Zoom with scroll wheel
             - 🖐️ Pan by clicking and dragging
-            - 🎨 Node colors: Blue=Authors, Red=Persons, Green=Locations, Purple=Organizations
+            - ▶️ Use controls on the right to adjust the layout in real-time
+            - 🎨 Node colors: Blue=Authors, Orange=Persons, Green=Locations, Red=Organizations
+            - 💡 The layout is computed in your browser using Force Atlas 2
             """)
     except Exception as e:
         st.error(f"❌ Error creating visualization: {e}")

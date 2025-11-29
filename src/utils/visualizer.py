@@ -1,32 +1,77 @@
-"""Network visualization with Force Atlas 2 layout."""
+"""Network visualization with front-end Force Atlas 2 layout."""
 import networkx as nx
 import plotly.graph_objects as go
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 import numpy as np
 
 
-try:
-    from fa2 import ForceAtlas2
-    FA2_AVAILABLE = True
-except ImportError:
-    FA2_AVAILABLE = False
-    print("⚠️  Warning: ForceAtlas2 not available. Install with: pip install fa2")
-
-
 class NetworkVisualizer:
-    """Visualize networks with Force Atlas 2 layout."""
-    
+    """Visualize networks with front-end Force Atlas 2 layout."""
+
     def __init__(self):
         """Initialize visualizer."""
         self.colors = {
             'author': '#1f77b4',      # Blue
-            'per': '#ff7f0e',         # Orange  
+            'per': '#ff7f0e',         # Orange
             'person': '#ff7f0e',      # Orange (alias)
             'loc': '#2ca02c',         # Green
             'location': '#2ca02c',    # Green (alias)
             'org': '#d62728',         # Red
             'organization': '#d62728' # Red (alias)
         }
+
+    def export_for_sigma(self, graph: nx.DiGraph) -> Dict:
+        """
+        Export graph data in Sigma.js format for front-end visualization.
+
+        Args:
+            graph: NetworkX DiGraph to export
+
+        Returns:
+            Dictionary with nodes and edges arrays for Sigma.js
+        """
+        nodes = []
+        edges = []
+
+        # Export nodes
+        for node_id, data in graph.nodes(data=True):
+            node_type = data.get('node_type', 'unknown')
+            nodes.append({
+                'key': str(node_id),
+                'label': data.get('label', str(node_id)),
+                'size': 10 + data.get('mention_count', 0) * 2,
+                'color': self._get_node_color(node_type),
+                'type': node_type,
+                'mention_count': data.get('mention_count', 0),
+                'post_count': data.get('post_count', 0)
+            })
+
+        # Export edges
+        for i, (u, v, data) in enumerate(graph.edges(data=True)):
+            edges.append({
+                'key': f'edge_{i}',
+                'source': str(u),
+                'target': str(v),
+                'weight': data.get('weight', 1),
+                'type': data.get('entity_type', 'default')
+            })
+
+        return {
+            'nodes': nodes,
+            'edges': edges
+        }
+
+    def _get_node_color(self, node_type: str) -> str:
+        """
+        Get color for node type.
+
+        Args:
+            node_type: Type of node (author, person, location, organization)
+
+        Returns:
+            Hex color code
+        """
+        return self.colors.get(node_type.lower(), '#888888')
     
     def compute_force_atlas_layout(
         self,
@@ -36,45 +81,22 @@ class NetworkVisualizer:
         scale: float = 2.0
     ) -> Dict[str, Tuple[float, float]]:
         """
-        Compute Force Atlas 2 layout for graph.
-        
+        Compute layout for graph using NetworkX spring layout.
+
+        Note: Force Atlas 2 layout is now computed in the browser using Sigma.js.
+        This method is kept for backward compatibility with Plotly visualizations.
+
         Args:
             graph: NetworkX graph
             iterations: Number of layout iterations
-            gravity: Gravity strength
+            gravity: Gravity strength (not used in spring layout)
             scale: Scale factor for positions
-            
+
         Returns:
             Dictionary mapping node to (x, y) position
         """
-        if not FA2_AVAILABLE:
-            print("⚠️  ForceAtlas2 not available, falling back to spring layout")
-            pos = nx.spring_layout(graph, iterations=50, scale=scale)
-            return pos
-        
-        # Initialize ForceAtlas2
-        forceatlas2 = ForceAtlas2(
-            outboundAttractionDistribution=True,
-            linLogMode=False,
-            adjustSizes=False,
-            edgeWeightInfluence=1.0,
-            jitterTolerance=1.0,
-            barnesHutOptimize=True,
-            barnesHutTheta=1.2,
-            scalingRatio=scale,
-            strongGravityMode=False,
-            gravity=gravity,
-            verbose=False
-        )
-        
-        # Compute positions
-        print(f"🎨 Computing Force Atlas 2 layout ({iterations} iterations)...")
-        pos = forceatlas2.forceatlas2_networkx_layout(
-            graph,
-            pos=None,
-            iterations=iterations
-        )
-        
+        print(f"🎨 Computing spring layout ({iterations} iterations)...")
+        pos = nx.spring_layout(graph, iterations=iterations, scale=scale)
         return pos
     
     def create_interactive_plot(
