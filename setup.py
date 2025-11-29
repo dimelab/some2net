@@ -37,6 +37,7 @@ setup(
         'networkx>=3.0',
         'streamlit>=1.25.0',
         'langdetect>=1.0.9',
+        'sentencepiece>=0.1.99',
         'numpy>=1.24.0',
         'tqdm>=4.65.0',
         'pyyaml>=6.0',

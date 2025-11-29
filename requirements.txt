@@ -18,6 +18,7 @@ plotly>=5.14.0
 
 # NLP utilities
 langdetect>=1.0.9
+sentencepiece>=0.1.99
 
 # Caching
 diskcache>=5.6.0
