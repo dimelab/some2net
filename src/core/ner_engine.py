@@ -331,42 +331,46 @@ class NEREngine:
             })
 
         # Second pass: merge adjacent entities of the same type
-        # This fixes tokenization issues like "G" + "rønland" -> "Grønland"
-        # Only merge if we have valid position data
+        # This fixes tokenization issues like "Ch" + "ristiansborg" -> "Christiansborg"
+        # Strategy: Merge BEFORE filtering, so short prefixes get merged
         if not filtered:
             return []
+
+        # Sort by start position to ensure proper order
+        filtered.sort(key=lambda x: (x['start'], x['end']))
 
         merged = []
         i = 0
         while i < len(filtered):
             current = filtered[i]
 
-            # Only try merging if we have valid position data
-            if current['start'] != 0 or current['end'] != 0:
-                # Look ahead to merge consecutive entities of same type
-                while i + 1 < len(filtered):
-                    next_entity = filtered[i + 1]
+            # Try merging with next entities if they're adjacent and same type
+            while i + 1 < len(filtered):
+                next_entity = filtered[i + 1]
 
-                    # Check if next entity is adjacent (within 2 characters) and same type
-                    try:
-                        distance = next_entity['start'] - current['end']
-                        if (next_entity['type'] == current['type'] and distance <= 2):
-                            # Merge the entities
-                            current = {
-                                'text': current['text'] + ' ' + next_entity['text'] if distance > 0 else current['text'] + next_entity['text'],
-                                'type': current['type'],
-                                'score': (current['score'] + next_entity['score']) / 2,
-                                'start': current['start'],
-                                'end': next_entity['end']
-                            }
-                            i += 1
-                        else:
-                            break
-                    except (TypeError, KeyError):
-                        # Skip merging if position data is invalid
+                try:
+                    # Calculate distance between entities
+                    distance = next_entity['start'] - current['end']
+
+                    # Merge if same type and adjacent (within 2 chars gap)
+                    if (next_entity['type'] == current['type'] and distance <= 2):
+                        # Merge the entities
+                        gap = ' ' if distance > 0 else ''
+                        current = {
+                            'text': current['text'] + gap + next_entity['text'],
+                            'type': current['type'],
+                            'score': (current['score'] + next_entity['score']) / 2,
+                            'start': current['start'],
+                            'end': next_entity['end']
+                        }
+                        i += 1  # Skip the next entity since we merged it
+                    else:
                         break
+                except (TypeError, KeyError):
+                    # Skip merging if position data is invalid
+                    break
 
-            # Filter out single-character entities after merging
+            # Only keep entities with 2+ characters (after merging)
             if len(current['text'].strip()) >= 2:
                 merged.append(current)
 

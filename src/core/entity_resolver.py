@@ -5,7 +5,60 @@ import re
 
 class EntityResolver:
     """Resolve and deduplicate named entities using simple normalized matching."""
-    
+
+    # Cross-language entity mappings (common locations and organizations)
+    # Maps variants to canonical English form
+    ENTITY_TRANSLATIONS = {
+        # Countries
+        'danmark': 'denmark',
+        'tyskland': 'germany',
+        'deutschland': 'germany',
+        'frankrig': 'france',
+        'sverige': 'sweden',
+        'norge': 'norway',
+        'finland': 'finland',
+        'island': 'iceland',
+        'spanien': 'spain',
+        'italien': 'italy',
+        'holland': 'netherlands',
+        'nederlandene': 'netherlands',
+        'belgien': 'belgium',
+        'østrig': 'austria',
+        'schweiz': 'switzerland',
+        'polen': 'poland',
+        'rusland': 'russia',
+        'kina': 'china',
+        'japan': 'japan',
+        'indien': 'india',
+        'usa': 'united states',
+        'amerika': 'united states',
+        'storbritannien': 'united kingdom',
+        'england': 'england',
+        'skotland': 'scotland',
+
+        # Cities
+        'københavn': 'copenhagen',
+        'kobenhavn': 'copenhagen',
+        'århus': 'aarhus',
+        'aarhus': 'aarhus',
+        'odense': 'odense',
+        'berlin': 'berlin',
+        'paris': 'paris',
+        'london': 'london',
+        'stockholm': 'stockholm',
+        'oslo': 'oslo',
+        'bruxelles': 'brussels',
+        'bryssel': 'brussels',
+        'wien': 'vienna',
+        'moskva': 'moscow',
+
+        # Regions
+        'europa': 'europe',
+        'eu': 'european union',
+        'norden': 'nordic countries',
+        'skandinavien': 'scandinavia',
+    }
+
     def __init__(self):
         """Initialize resolver with simple matching only."""
         self.entity_map: Dict[str, str] = {}  # normalized -> canonical
@@ -33,21 +86,34 @@ class EntityResolver:
     
     def get_canonical_form(self, entity_text: str) -> str:
         """
-        Get canonical form of entity using simple normalized matching.
+        Get canonical form of entity using simple normalized matching with cross-language support.
         "John Smith" in post 1 = "john smith" in post 2 = "JOHN SMITH" in post 3
-        
+        "Danmark" = "Denmark" (cross-language)
+
         Args:
             entity_text: Entity text to resolve
-            
+
         Returns:
             Canonical form (first occurrence with that normalized form)
         """
         normalized = self.normalize_text(entity_text)
-        
+
+        # Check for cross-language translation first
+        if normalized in self.ENTITY_TRANSLATIONS:
+            translated = self.ENTITY_TRANSLATIONS[normalized]
+            # Use the translated form to look up or create canonical
+            if translated in self.entity_map:
+                return self.entity_map[translated]
+            else:
+                # First time seeing this entity - use capitalized English form
+                canonical = translated.title()
+                self.entity_map[translated] = canonical
+                return canonical
+
         # Check for exact normalized match
         if normalized in self.entity_map:
             return self.entity_map[normalized]
-        
+
         # New entity - use original text as canonical form
         # This preserves the original capitalization from first occurrence
         self.entity_map[normalized] = entity_text
