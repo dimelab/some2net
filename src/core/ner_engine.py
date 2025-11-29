@@ -316,6 +316,10 @@ class NEREngine:
 
             entity_text = entity['word'].strip()
 
+            # Skip if start/end positions are None (malformed entity)
+            if entity.get('start') is None or entity.get('end') is None:
+                continue
+
             filtered.append({
                 'text': entity_text,
                 'type': entity_type,
