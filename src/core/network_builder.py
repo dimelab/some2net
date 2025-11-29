@@ -98,6 +98,10 @@ class NetworkBuilder:
                 post_count=0
             )
 
+        # Ensure post_count attribute exists (for backwards compatibility)
+        if 'post_count' not in self.graph.nodes[author]:
+            self.graph.nodes[author]['post_count'] = 0
+
         # Increment author's post count
         self.graph.nodes[author]['post_count'] += 1
 
