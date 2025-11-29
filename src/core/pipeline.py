@@ -19,7 +19,12 @@ import networkx as nx
 from .data_loader import DataLoader
 from .ner_engine import NEREngine
 from .network_builder import NetworkBuilder
-from ..utils.exporters import export_all_formats
+
+try:
+    from ..utils.exporters import export_all_formats
+except ImportError:
+    # Fallback for when running as script
+    from utils.exporters import export_all_formats
 
 logger = logging.getLogger(__name__)
 
@@ -292,10 +297,16 @@ class SocialNetworkPipeline:
             )
         else:
             # Export specific formats
-            from ..utils.exporters import (
-                export_gexf, export_graphml, export_json,
-                export_edgelist, export_statistics
-            )
+            try:
+                from ..utils.exporters import (
+                    export_gexf, export_graphml, export_json,
+                    export_edgelist, export_statistics
+                )
+            except ImportError:
+                from utils.exporters import (
+                    export_gexf, export_graphml, export_json,
+                    export_edgelist, export_statistics
+                )
 
             files = {}
             output_path = Path(output_dir)
