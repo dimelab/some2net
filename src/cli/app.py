@@ -158,7 +158,7 @@ def main():
             if enable_cache:
                 if st.button("🗑️ Clear NER Cache", use_container_width=True):
                     st.session_state['clear_cache'] = True
-                    st.success("✅ Cache will be cleared on next processing")
+                    st.warning("⚠️ Cache will be cleared on next processing. Click 'Process Data' to reprocess with updated settings.")
 
     # Main content area
     st.header("1️⃣ Upload Data")
@@ -356,7 +356,7 @@ def process_data_with_pipeline(
             if st.session_state.get('clear_cache', False):
                 pipeline.ner_engine.clear_cache()
                 st.session_state['clear_cache'] = False
-                st.success("✅ Cache cleared!")
+                st.info("🗑️ NER cache cleared! Processing with fresh NER extraction...")
 
         st.success("✅ Pipeline initialized and model loaded!")
 
@@ -457,6 +457,11 @@ def display_results(graph, stats, layout_iterations):
 
     st.header("4️⃣ Results")
 
+    # Debug: Check actual graph object
+    actual_nodes = graph.number_of_nodes()
+    actual_edges = graph.number_of_edges()
+    st.info(f"🔍 Debug - Actual graph object: {actual_nodes} nodes, {actual_edges} edges")
+
     # Main metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -540,6 +545,9 @@ def display_results(graph, stats, layout_iterations):
 
             # Export graph data for Sigma.js
             graph_data = viz.export_for_sigma(display_graph)
+
+            # Debug info
+            st.info(f"📊 Graph data: {len(graph_data.get('nodes', []))} nodes, {len(graph_data.get('edges', []))} edges")
 
             # Load HTML template
             template_path = Path(__file__).parent / 'templates' / 'sigma_viewer.html'
