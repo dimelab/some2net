@@ -297,11 +297,11 @@ class NEREngine:
 
         for entity in entities:
             # Filter by confidence
-            if entity['score'] < self.confidence_threshold:
+            if entity.get('score', 0) < self.confidence_threshold:
                 continue
 
             # Standardize entity type labels
-            entity_type = entity['entity_group']
+            entity_type = entity.get('entity_group', '')
 
             # Map to standard labels
             if entity_type in ['PER', 'PERSON']:
@@ -314,45 +314,57 @@ class NEREngine:
                 # Skip MISC and other types
                 continue
 
-            entity_text = entity['word'].strip()
-
-            # Skip if start/end positions are None (malformed entity)
-            if entity.get('start') is None or entity.get('end') is None:
+            entity_text = entity.get('word', '').strip()
+            if not entity_text:
                 continue
+
+            # Get start/end positions, use defaults if None
+            start_pos = entity.get('start', 0)
+            end_pos = entity.get('end', 0)
 
             filtered.append({
                 'text': entity_text,
                 'type': entity_type,
                 'score': entity['score'],
-                'start': entity['start'],
-                'end': entity['end']
+                'start': start_pos,
+                'end': end_pos
             })
 
         # Second pass: merge adjacent entities of the same type
         # This fixes tokenization issues like "G" + "rønland" -> "Grønland"
+        # Only merge if we have valid position data
+        if not filtered:
+            return []
+
         merged = []
         i = 0
         while i < len(filtered):
             current = filtered[i]
 
-            # Look ahead to merge consecutive entities of same type
-            while i + 1 < len(filtered):
-                next_entity = filtered[i + 1]
+            # Only try merging if we have valid position data
+            if current['start'] != 0 or current['end'] != 0:
+                # Look ahead to merge consecutive entities of same type
+                while i + 1 < len(filtered):
+                    next_entity = filtered[i + 1]
 
-                # Check if next entity is adjacent (within 2 characters) and same type
-                if (next_entity['type'] == current['type'] and
-                    next_entity['start'] - current['end'] <= 2):
-                    # Merge the entities
-                    current = {
-                        'text': current['text'] + ' ' + next_entity['text'] if next_entity['start'] - current['end'] > 0 else current['text'] + next_entity['text'],
-                        'type': current['type'],
-                        'score': (current['score'] + next_entity['score']) / 2,
-                        'start': current['start'],
-                        'end': next_entity['end']
-                    }
-                    i += 1
-                else:
-                    break
+                    # Check if next entity is adjacent (within 2 characters) and same type
+                    try:
+                        distance = next_entity['start'] - current['end']
+                        if (next_entity['type'] == current['type'] and distance <= 2):
+                            # Merge the entities
+                            current = {
+                                'text': current['text'] + ' ' + next_entity['text'] if distance > 0 else current['text'] + next_entity['text'],
+                                'type': current['type'],
+                                'score': (current['score'] + next_entity['score']) / 2,
+                                'start': current['start'],
+                                'end': next_entity['end']
+                            }
+                            i += 1
+                        else:
+                            break
+                    except (TypeError, KeyError):
+                        # Skip merging if position data is invalid
+                        break
 
             # Filter out single-character entities after merging
             if len(current['text'].strip()) >= 2:
