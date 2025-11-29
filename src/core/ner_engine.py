@@ -285,23 +285,24 @@ class NEREngine:
     def _clean_entities(self, entities: List[Dict]) -> List[Dict]:
         """
         Clean and filter entity results.
-        
+
         Args:
             entities: Raw entity results from pipeline
-            
+
         Returns:
             Cleaned entity list
         """
-        cleaned = []
-        
+        # First pass: filter and standardize
+        filtered = []
+
         for entity in entities:
             # Filter by confidence
             if entity['score'] < self.confidence_threshold:
                 continue
-            
+
             # Standardize entity type labels
             entity_type = entity['entity_group']
-            
+
             # Map to standard labels
             if entity_type in ['PER', 'PERSON']:
                 entity_type = 'PER'
@@ -313,20 +314,49 @@ class NEREngine:
                 # Skip MISC and other types
                 continue
 
-            # Filter out single-character entities (noise like "A", "G", ".")
             entity_text = entity['word'].strip()
-            if len(entity_text) < 2:
-                continue
 
-            cleaned.append({
+            filtered.append({
                 'text': entity_text,
                 'type': entity_type,
                 'score': entity['score'],
                 'start': entity['start'],
                 'end': entity['end']
             })
-        
-        return cleaned
+
+        # Second pass: merge adjacent entities of the same type
+        # This fixes tokenization issues like "G" + "rønland" -> "Grønland"
+        merged = []
+        i = 0
+        while i < len(filtered):
+            current = filtered[i]
+
+            # Look ahead to merge consecutive entities of same type
+            while i + 1 < len(filtered):
+                next_entity = filtered[i + 1]
+
+                # Check if next entity is adjacent (within 2 characters) and same type
+                if (next_entity['type'] == current['type'] and
+                    next_entity['start'] - current['end'] <= 2):
+                    # Merge the entities
+                    current = {
+                        'text': current['text'] + ' ' + next_entity['text'] if next_entity['start'] - current['end'] > 0 else current['text'] + next_entity['text'],
+                        'type': current['type'],
+                        'score': (current['score'] + next_entity['score']) / 2,
+                        'start': current['start'],
+                        'end': next_entity['end']
+                    }
+                    i += 1
+                else:
+                    break
+
+            # Filter out single-character entities after merging
+            if len(current['text'].strip()) >= 2:
+                merged.append(current)
+
+            i += 1
+
+        return merged
     
     def clear_cache(self) -> None:
         """Clear all cached NER results."""
