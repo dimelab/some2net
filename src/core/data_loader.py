@@ -161,6 +161,14 @@ class DataLoader:
                     **kwargs
                 )
 
+                # Handle duplicate column names by keeping only the first occurrence
+                if first_chunk.columns.duplicated().any():
+                    logger.warning(f"Duplicate column names detected. Keeping only first occurrence.")
+                    # Get mask of duplicate columns
+                    dup_mask = first_chunk.columns.duplicated(keep='first')
+                    # Keep only non-duplicate columns
+                    first_chunk = first_chunk.loc[:, ~dup_mask]
+
                 # Validate columns exist
                 self.validate_columns(first_chunk, author_column, text_column)
 
@@ -177,12 +185,17 @@ class DataLoader:
                     # Strip whitespace from column names
                     chunk.columns = chunk.columns.str.strip()
 
-                    # Handle missing values
-                    chunk[author_column] = chunk[author_column].fillna('unknown')
-                    chunk[text_column] = chunk[text_column].fillna('')
+                    # Handle duplicate column names by keeping only the first occurrence
+                    if chunk.columns.duplicated().any():
+                        dup_mask = chunk.columns.duplicated(keep='first')
+                        chunk = chunk.loc[:, ~dup_mask]
 
-                    # Remove rows with empty text
-                    chunk = chunk[chunk[text_column].str.len() > 0]
+                    # Handle missing values and ensure string type
+                    chunk[author_column] = chunk[author_column].fillna('unknown').astype(str)
+                    chunk[text_column] = chunk[text_column].fillna('').astype(str)
+
+                    # Remove rows with empty text after converting to string
+                    chunk = chunk[chunk[text_column].str.strip().str.len() > 0]
 
                     chunk_count += 1
                     logger.debug(f"Yielding chunk {chunk_count} with {len(chunk)} rows")
@@ -268,12 +281,12 @@ class DataLoader:
                                 if chunk_count == 0:
                                     self.validate_columns(chunk_df, author_column, text_column)
 
-                                # Handle missing values
-                                chunk_df[author_column] = chunk_df[author_column].fillna('unknown')
-                                chunk_df[text_column] = chunk_df[text_column].fillna('')
+                                # Handle missing values and ensure string type
+                                chunk_df[author_column] = chunk_df[author_column].fillna('unknown').astype(str)
+                                chunk_df[text_column] = chunk_df[text_column].fillna('').astype(str)
 
-                                # Remove rows with empty text
-                                chunk_df = chunk_df[chunk_df[text_column].str.len() > 0]
+                                # Remove rows with empty text after converting to string
+                                chunk_df = chunk_df[chunk_df[text_column].str.strip().str.len() > 0]
 
                                 chunk_count += 1
                                 logger.debug(f"Yielding chunk {chunk_count} with {len(chunk_df)} rows")
@@ -293,9 +306,9 @@ class DataLoader:
                         if chunk_count == 0:
                             self.validate_columns(chunk_df, author_column, text_column)
 
-                        chunk_df[author_column] = chunk_df[author_column].fillna('unknown')
-                        chunk_df[text_column] = chunk_df[text_column].fillna('')
-                        chunk_df = chunk_df[chunk_df[text_column].str.len() > 0]
+                        chunk_df[author_column] = chunk_df[author_column].fillna('unknown').astype(str)
+                        chunk_df[text_column] = chunk_df[text_column].fillna('').astype(str)
+                        chunk_df = chunk_df[chunk_df[text_column].str.strip().str.len() > 0]
 
                         chunk_count += 1
                         logger.debug(f"Yielding final chunk {chunk_count} with {len(chunk_df)} rows")
@@ -386,7 +399,14 @@ class DataLoader:
         if suffix == '.csv':
             # Read just the header
             df = pd.read_csv(filepath, encoding=encoding, nrows=0)
-            return df.columns.str.strip().tolist()
+            # Strip whitespace
+            df.columns = df.columns.str.strip()
+            # Handle duplicate column names by keeping only first occurrence
+            if df.columns.duplicated().any():
+                logger.warning(f"Duplicate column names detected in header. Keeping only first occurrence.")
+                dup_mask = df.columns.duplicated(keep='first')
+                df = df.loc[:, ~dup_mask]
+            return df.columns.tolist()
 
         elif suffix in ['.ndjson', '.jsonl']:
             # Read first valid JSON line

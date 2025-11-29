@@ -189,6 +189,12 @@ def main():
             else:
                 preview_df = pd.read_json(temp_path, lines=True, nrows=10)
 
+            # Handle duplicate column names
+            if preview_df.columns.duplicated().any():
+                st.warning("⚠️ Duplicate column names detected. Keeping only the first occurrence of each column.")
+                dup_mask = preview_df.columns.duplicated(keep='first')
+                preview_df = preview_df.loc[:, ~dup_mask]
+
             st.dataframe(preview_df, use_container_width=True)
 
             # File info

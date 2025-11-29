@@ -72,19 +72,26 @@ class NEREngine:
     def detect_language(self, text: str) -> str:
         """
         Detect language of text.
-        
+
         Args:
             text: Input text
-            
+
         Returns:
             ISO language code (e.g., 'en', 'da', 'unknown')
         """
+        # Handle None and empty strings
+        if not text or not isinstance(text, str) or len(text.strip()) == 0:
+            return 'unknown'
+
         try:
             # Try to detect language
             lang = detect(text)
             return lang
         except LangDetectException:
             # If detection fails, return unknown
+            return 'unknown'
+        except Exception:
+            # Catch any other errors (like AttributeError on None)
             return 'unknown'
     
     def _get_cache_key(self, text: str) -> str:
@@ -130,13 +137,26 @@ class NEREngine:
         texts_indices = []
         
         for i, text in enumerate(texts):
+            # Handle None or non-string values
+            if text is None or not isinstance(text, str):
+                text = ""
+                all_results.append([])
+                all_languages.append('unknown')
+                continue
+
+            # Handle empty strings
+            if len(text.strip()) == 0:
+                all_results.append([])
+                all_languages.append('unknown')
+                continue
+
             # Detect language if requested
             if detect_languages:
                 lang = self.detect_language(text)
                 all_languages.append(lang)
             else:
                 all_languages.append('unknown')
-            
+
             # Check cache
             if self.enable_cache and self.cache is not None:
                 cache_key = self._get_cache_key(text)
