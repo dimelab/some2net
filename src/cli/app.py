@@ -239,7 +239,7 @@ def main():
         # Try to find author column
         if 'author_col_selection' not in st.session_state:
             author_default_index = 0
-            for preferred in ['author_full', 'author', 'username', 'user']:
+            for preferred in ['author', 'author_full', 'username', 'user']:
                 if preferred in preview_df.columns:
                     author_default_index = list(preview_df.columns).index(preferred)
                     break
