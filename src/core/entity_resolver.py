@@ -55,47 +55,45 @@ class EntityResolver:
     
     def is_author_mention(self, author_name: str, entity_text: str) -> bool:
         """
-        Check if entity matches an author name using simple matching.
-        
+        Check if entity matches an author name using stricter matching.
+
         Args:
             author_name: Author name/handle
             entity_text: Extracted entity text
-            
+
         Returns:
             True if entity likely refers to author
         """
         # Normalize both
         norm_author = self.normalize_text(author_name)
         norm_entity = self.normalize_text(entity_text)
-        
-        # Remove @ symbol from handles
+
+        # Check if entity has @ symbol (explicit @-mention)
+        entity_has_at = entity_text.strip().startswith('@')
+
+        # Remove @ symbol from handles for comparison
         norm_author = norm_author.lstrip('@')
         norm_entity = norm_entity.lstrip('@')
-        
-        # Exact match after normalization
+
+        # If entity has @, it's an explicit mention - check for exact match
+        if entity_has_at:
+            return norm_author == norm_entity
+
+        # Exact match after normalization (without @)
         if norm_author == norm_entity:
             return True
-        
-        # Check if one contains the other
-        if norm_author in norm_entity or norm_entity in norm_author:
-            return True
-        
-        # Check if entity is part of author name
-        # e.g., "Smith" matches "@JohnSmith" or "John Smith"
-        author_parts = set(norm_author.split())
-        entity_parts = set(norm_entity.split())
-        
-        # If entity is single word and matches any author name part
-        if len(entity_parts) == 1 and entity_parts.issubset(author_parts):
-            return True
-        
-        # If author handle contains entity as substring
-        # e.g., "@johnsmith" contains "john" or "smith"
-        if len(entity_parts) == 1:
-            entity_word = list(entity_parts)[0]
-            if len(entity_word) > 3 and entity_word in norm_author:
+
+        # STRICT: Only match if entity is the FULL author name
+        # This prevents partial matches like "Liberal" matching "Liberal Alliance"
+        # Author-to-author edges should only be created for explicit mentions
+
+        # Check if author name is at start/end with word boundaries
+        # e.g., "@johndoe" mentioned as "johndoe" or "John Doe"
+        if norm_author.startswith(norm_entity + ' ') or norm_author.endswith(' ' + norm_entity):
+            # Only if entity is substantial (>4 chars to avoid short false positives)
+            if len(norm_entity) > 4:
                 return True
-        
+
         return False
     
     def reset(self):
