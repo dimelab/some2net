@@ -1,7 +1,7 @@
 """Named Entity Recognition engine with caching and language detection."""
 from typing import List, Dict, Optional
 import torch
-from transformers import pipeline
+from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
 from tqdm import tqdm
 import hashlib
 import json
@@ -59,30 +59,39 @@ class NEREngine:
         print(f"📱 Device: {'GPU (CUDA)' if self.device >= 0 else 'CPU'}")
 
         try:
-            # Try loading with use_fast=False to avoid tokenizer issues
+            # Explicitly load tokenizer and model to avoid fast tokenizer issues
+            print("📥 Loading tokenizer...")
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                use_fast=False,  # Force slow tokenizer
+                add_prefix_space=True
+            )
+
+            print("📥 Loading model...")
+            model = AutoModelForTokenClassification.from_pretrained(model_name)
+
+            # Create pipeline with explicit tokenizer and model
+            print("🔧 Creating NER pipeline...")
             self.nlp = pipeline(
                 "ner",
-                model=model_name,
+                model=model,
+                tokenizer=tokenizer,
                 aggregation_strategy="simple",
-                device=self.device,
-                use_fast=False  # Use slow tokenizer to avoid vocab_file issues
+                device=self.device
             )
             print("✅ Model loaded successfully!")
+
         except Exception as e:
-            print(f"⚠️  Warning: Failed to load with slow tokenizer, trying fast tokenizer...")
-            try:
-                # Fallback: try with default settings
-                self.nlp = pipeline(
-                    "ner",
-                    model=model_name,
-                    aggregation_strategy="simple",
-                    device=self.device
-                )
-                print("✅ Model loaded successfully!")
-            except Exception as e2:
-                print(f"❌ Error loading model: {e2}")
-                print(f"💡 Try running: python -c \"from transformers import AutoTokenizer, AutoModelForTokenClassification; AutoTokenizer.from_pretrained('{model_name}'); AutoModelForTokenClassification.from_pretrained('{model_name}')\"")
-                raise RuntimeError(f"Failed to load NER model. Original error: {e}. Fallback error: {e2}")
+            print(f"❌ Error loading model: {e}")
+            print("\n💡 Troubleshooting steps:")
+            print(f"1. Clear cache: rm -rf ~/.cache/huggingface/")
+            print(f"2. Upgrade transformers: pip install --upgrade transformers")
+            print(f"3. Try manual download:")
+            print(f"   python -c \"from transformers import AutoTokenizer, AutoModelForTokenClassification;")
+            print(f"   AutoTokenizer.from_pretrained('{model_name}', use_fast=False);")
+            print(f"   AutoModelForTokenClassification.from_pretrained('{model_name}')\"")
+            print(f"\nSee TROUBLESHOOTING_MODEL_LOAD.md for more details.")
+            raise RuntimeError(f"Failed to load NER model: {e}")
 
         if enable_cache:
             print(f"💾 Cache enabled at: {cache_dir}")
