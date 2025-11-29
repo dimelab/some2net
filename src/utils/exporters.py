@@ -1,6 +1,7 @@
 """Network export utilities for various formats."""
 import networkx as nx
 import json
+import numpy as np
 from typing import Dict
 from pathlib import Path
 
@@ -44,37 +45,77 @@ def export_graphml(graph: nx.DiGraph, filepath: str) -> None:
 def export_gexf(graph: nx.DiGraph, filepath: str) -> None:
     """
     Export network to GEXF format.
-    
+
     Args:
         graph: NetworkX graph
         filepath: Output file path
     """
     # Ensure directory exists
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-    
-    # GEXF format
-    nx.write_gexf(graph, filepath)
+
+    # GEXF requires sanitized attributes (similar to GraphML)
+    graph_copy = graph.copy()
+
+    # Convert node attributes to compatible types
+    for node in graph_copy.nodes():
+        attrs = graph_copy.nodes[node]
+        for key, value in attrs.items():
+            if isinstance(value, (list, dict)):
+                graph_copy.nodes[node][key] = str(value)
+            elif isinstance(value, (np.integer, np.floating)):
+                graph_copy.nodes[node][key] = float(value)
+
+    # Convert edge attributes to compatible types
+    for u, v in graph_copy.edges():
+        attrs = graph_copy[u][v]
+        for key, value in attrs.items():
+            if isinstance(value, list):
+                graph_copy[u][v][key] = ','.join(str(x) for x in value)
+            elif isinstance(value, dict):
+                graph_copy[u][v][key] = str(value)
+            elif isinstance(value, (np.integer, np.floating)):
+                graph_copy[u][v][key] = float(value)
+
+    # Write to file
+    nx.write_gexf(graph_copy, filepath)
     print(f"Exported GEXF to {filepath}")
 
 
 def export_json(graph: nx.DiGraph, filepath: str) -> None:
     """
     Export network to JSON format (D3.js node-link format).
-    
+
     Args:
         graph: NetworkX graph
         filepath: Output file path
     """
     # Ensure directory exists
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-    
-    # Convert to node-link format
-    data = nx.node_link_data(graph)
-    
+
+    # Convert to node-link format with explicit edges parameter (NetworkX 3.6+ compatibility)
+    data = nx.node_link_data(graph, edges="links")
+
+    # Convert numpy types to native Python types for JSON serialization
+    def convert_numpy_types(obj):
+        """Recursively convert numpy types to native Python types."""
+        if isinstance(obj, dict):
+            return {key: convert_numpy_types(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_numpy_types(item) for item in obj]
+        elif isinstance(obj, (np.integer, np.int64, np.int32)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return obj
+
+    data = convert_numpy_types(data)
+
     # Write to file
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    
+
     print(f"Exported JSON to {filepath}")
 
 

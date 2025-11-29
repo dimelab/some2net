@@ -535,8 +535,11 @@ def display_results(graph, stats, layout_iterations):
                 json.dumps(graph_data)
             )
 
-            # Display in Streamlit
-            components.html(html_content, height=850, scrolling=False)
+            # Display in Streamlit with unique key to prevent multiple renders
+            # Create unique key from graph hash to ensure single render per graph
+            import hashlib
+            graph_hash = hashlib.md5(json.dumps(graph_data, sort_keys=True).encode()).hexdigest()[:8]
+            components.html(html_content, height=850, scrolling=False, key=f"sigma_viz_{graph_hash}")
 
             st.caption("""
             **How to interact:**
