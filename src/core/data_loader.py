@@ -158,6 +158,7 @@ class DataLoader:
                     filepath,
                     encoding=enc,
                     nrows=chunksize,
+                    on_bad_lines='warn',  # Skip malformed rows with warning
                     **kwargs
                 )
 
@@ -177,6 +178,7 @@ class DataLoader:
                     filepath,
                     encoding=enc,
                     chunksize=chunksize,
+                    on_bad_lines='warn',  # Skip malformed rows with warning
                     **kwargs
                 )
 

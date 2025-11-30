@@ -150,6 +150,40 @@ def main():
                                              help="Create edges when authors mention each other")
             use_entity_resolver = st.checkbox("Entity Deduplication", value=True,
                                              help="Deduplicate entities (case-insensitive matching)")
+
+            st.divider()
+
+            # Entity Linking Options (Phase 2)
+            st.subheader("🔗 Entity Linking (Phase 2)")
+            enable_entity_linking = st.checkbox(
+                "Enable Wikipedia/Wikidata Linking",
+                value=False,
+                help="Link entities to Wikipedia/Wikidata for enhanced cross-language resolution"
+            )
+
+            if enable_entity_linking:
+                st.info("ℹ️ Entity linking will connect entities like 'København', 'Copenhagen', and 'Copenhague' to the same Wikipedia/Wikidata entry (Q1748)")
+
+                linking_confidence = st.slider(
+                    "Linking Confidence Threshold",
+                    min_value=0.5,
+                    max_value=1.0,
+                    value=0.7,
+                    step=0.05,
+                    help="Minimum confidence for entity linking"
+                )
+
+                linking_cache = st.checkbox(
+                    "Cache Linking Results",
+                    value=True,
+                    help="Cache entity linking results for faster reprocessing"
+                )
+            else:
+                linking_confidence = 0.7
+                linking_cache = True
+
+            st.divider()
+
             layout_iterations = st.slider("Visualization Quality", 50, 200, 100, 10,
                                          help="Force Atlas iterations (higher = better layout, slower)")
 
@@ -357,20 +391,36 @@ def process_data_with_pipeline(
 
     try:
         # Create pipeline
-        with st.spinner("🔄 Initializing pipeline and loading NER model..."):
+        spinner_msg = "🔄 Initializing pipeline and loading NER model..."
+        if enable_entity_linking:
+            spinner_msg = "🔄 Initializing pipeline and loading NER + Entity Linking models..."
+
+        with st.spinner(spinner_msg):
+            # Configure entity linking
+            entity_linking_config = None
+            if enable_entity_linking:
+                entity_linking_config = {
+                    'confidence_threshold': linking_confidence,
+                    'enable_cache': linking_cache
+                }
+
             pipeline = SocialNetworkPipeline(
                 model_name=model_name,
                 confidence_threshold=confidence,
                 enable_cache=enable_cache,
                 use_entity_resolver=use_entity_resolver,
-                create_author_edges=create_author_edges
+                create_author_edges=create_author_edges,
+                enable_entity_linking=enable_entity_linking,
+                entity_linking_config=entity_linking_config
             )
 
             # Clear cache if requested
             if st.session_state.get('clear_cache', False):
                 pipeline.ner_engine.clear_cache()
+                if enable_entity_linking and pipeline.entity_linker:
+                    pipeline.entity_linker.clear_cache()
                 st.session_state['clear_cache'] = False
-                st.info("🗑️ NER cache cleared! Processing with fresh NER extraction...")
+                st.info("🗑️ Cache cleared! Processing with fresh extraction...")
 
         st.success("✅ Pipeline initialized and model loaded!")
 
@@ -503,13 +553,26 @@ def display_results(graph, stats, layout_iterations):
     with st.expander("📊 Processing Details"):
         metadata = stats['processing_metadata']
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Posts Processed", f"{metadata['total_posts']:,}")
-        with col2:
-            st.metric("Chunks Processed", f"{metadata['total_chunks']:,}")
-        with col3:
-            st.metric("Entities Extracted", f"{metadata['entities_extracted']:,}")
+        # Display processing metadata with entity linking stats if available
+        if metadata.get('entities_linked', 0) > 0:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Posts Processed", f"{metadata['total_posts']:,}")
+            with col2:
+                st.metric("Chunks Processed", f"{metadata['total_chunks']:,}")
+            with col3:
+                st.metric("Entities Extracted", f"{metadata['entities_extracted']:,}")
+            with col4:
+                linked_pct = (metadata['entities_linked'] / metadata['entities_extracted'] * 100) if metadata['entities_extracted'] > 0 else 0
+                st.metric("Entities Linked", f"{metadata['entities_linked']:,}", f"{linked_pct:.1f}%")
+        else:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Posts Processed", f"{metadata['total_posts']:,}")
+            with col2:
+                st.metric("Chunks Processed", f"{metadata['total_chunks']:,}")
+            with col3:
+                st.metric("Entities Extracted", f"{metadata['entities_extracted']:,}")
 
         if metadata['errors']:
             st.warning(f"⚠️ {len(metadata['errors'])} errors encountered during processing")
@@ -524,6 +587,25 @@ def display_results(graph, stats, layout_iterations):
     if stats.get('top_entities'):
         top_df = pd.DataFrame(stats['top_entities'][:20])
         top_df.columns = ['Entity', 'Mentions', 'Type']
+
+        # Add Wikidata/Wikipedia links if entity linking was enabled
+        if enable_entity_linking:
+            # Get Wikidata IDs and Wikipedia URLs from graph nodes
+            wikidata_ids = []
+            wikipedia_urls = []
+            for entity_name in top_df['Entity']:
+                if graph.has_node(entity_name):
+                    node_data = graph.nodes[entity_name]
+                    wikidata_id = node_data.get('wikidata_id', '')
+                    wikipedia_url = node_data.get('wikipedia_url', '')
+                    wikidata_ids.append(wikidata_id if wikidata_id else '-')
+                    wikipedia_urls.append(f'[Link]({wikipedia_url})' if wikipedia_url else '-')
+                else:
+                    wikidata_ids.append('-')
+                    wikipedia_urls.append('-')
+
+            top_df['Wikidata ID'] = wikidata_ids
+            top_df['Wikipedia'] = wikipedia_urls
 
         # Color code by type
         def highlight_type(row):

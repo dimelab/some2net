@@ -1,0 +1,52 @@
+{
+  "Meta": {
+    "canonical_name": "Meta Platforms",
+    "wikidata_id": "Q380",
+    "wikipedia_url": "https://en.wikipedia.org/wiki/Meta_Platforms",
+    "type": "ORG",
+    "aliases": ["Facebook", "Meta Platforms Inc", "Meta Inc", "Facebook Inc"],
+    "language_variants": {
+      "en": "Meta Platforms",
+      "da": "Meta Platforms",
+      "de": "Meta Platforms",
+      "fr": "Meta Platforms"
+    }
+  },
+  "Copenhagen": {
+    "canonical_name": "Copenhagen",
+    "wikidata_id": "Q1748",
+    "wikipedia_url": "https://en.wikipedia.org/wiki/Copenhagen",
+    "type": "LOC",
+    "aliases": ["København", "CPH", "Køben"],
+    "language_variants": {
+      "en": "Copenhagen",
+      "da": "København",
+      "de": "Kopenhagen",
+      "fr": "Copenhague"
+    }
+  },
+  "Mette Frederiksen": {
+    "canonical_name": "Mette Frederiksen",
+    "wikidata_id": "Q5015",
+    "wikipedia_url": "https://en.wikipedia.org/wiki/Mette_Frederiksen",
+    "type": "PER",
+    "aliases": ["Frederiksen", "Mette F"],
+    "language_variants": {
+      "en": "Mette Frederiksen",
+      "da": "Mette Frederiksen"
+    }
+  },
+  "EU": {
+    "canonical_name": "European Union",
+    "wikidata_id": "Q458",
+    "wikipedia_url": "https://en.wikipedia.org/wiki/European_Union",
+    "type": "ORG",
+    "aliases": ["European Union", "the EU", "E.U."],
+    "language_variants": {
+      "en": "European Union",
+      "da": "Den Europæiske Union",
+      "de": "Europäische Union",
+      "fr": "Union européenne"
+    }
+  }
+}

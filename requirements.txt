@@ -19,6 +19,7 @@ plotly>=5.14.0
 # NLP utilities
 langdetect>=1.0.9
 sentencepiece>=0.1.99
+sentence-transformers>=2.2.0  # Phase 3: Advanced disambiguation
 
 # Caching
 diskcache>=5.6.0
@@ -27,6 +28,7 @@ diskcache>=5.6.0
 tqdm>=4.65.0
 pyyaml>=6.0
 chardet>=5.0.0
+requests>=2.28.0  # Entity linking API calls
 
 # Development (optional)
 pytest>=7.0

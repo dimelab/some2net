@@ -111,12 +111,23 @@ class NetworkBuilder:
             entity_type = entity.get('type', 'UNKNOWN')
             entity_score = entity.get('score', 0.0)
 
+            # Entity linking metadata (if available)
+            wikidata_id = entity.get('wikidata_id')
+            wikipedia_url = entity.get('wikipedia_url')
+            canonical_name = entity.get('canonical_name')
+            is_linked = entity.get('is_linked', False)
+
             if not entity_text:
                 continue
 
             # Resolve entity to canonical form if resolver enabled
             if self.entity_resolver:
-                canonical_entity = self.entity_resolver.get_canonical_form(entity_text)
+                # Use Wikidata ID for enhanced resolution if available
+                canonical_entity = self.entity_resolver.get_canonical_form(
+                    entity_text,
+                    wikidata_id=wikidata_id,
+                    canonical_name=canonical_name
+                )
             else:
                 canonical_entity = entity_text
 
@@ -137,13 +148,21 @@ class NetworkBuilder:
             # Add entity node and edge if not an author mention
             # (or if we're not creating author edges)
             if not is_author_mention or not self.create_author_edges:
+                # Pass entity linking metadata
+                entity_metadata = {
+                    'wikidata_id': wikidata_id,
+                    'wikipedia_url': wikipedia_url,
+                    'is_linked': is_linked
+                } if is_linked else {}
+
                 self._add_entity_edge(
                     author,
                     canonical_entity,
                     entity_type,
                     entity_score,
                     post_id,
-                    timestamp
+                    timestamp,
+                    entity_metadata
                 )
                 self.stats['entities_added'] += 1
 
@@ -154,7 +173,8 @@ class NetworkBuilder:
         entity_type: str,
         score: float,
         post_id: Optional[str],
-        timestamp: Optional[str]
+        timestamp: Optional[str],
+        entity_metadata: Optional[Dict] = None
     ):
         """Add or update edge from author to entity."""
 
@@ -171,12 +191,31 @@ class NetworkBuilder:
 
         # Add entity node if not exists
         if not self.graph.has_node(entity):
-            self.graph.add_node(
-                entity,
-                node_type=node_type,
-                label=entity,
-                mention_count=0
-            )
+            node_attrs = {
+                'node_type': node_type,
+                'label': entity,
+                'mention_count': 0
+            }
+
+            # Add entity linking metadata if available
+            if entity_metadata:
+                if entity_metadata.get('wikidata_id'):
+                    node_attrs['wikidata_id'] = entity_metadata['wikidata_id']
+                if entity_metadata.get('wikipedia_url'):
+                    node_attrs['wikipedia_url'] = entity_metadata['wikipedia_url']
+                if entity_metadata.get('is_linked'):
+                    node_attrs['is_linked'] = True
+
+            self.graph.add_node(entity, **node_attrs)
+        else:
+            # Update existing node with entity linking metadata if available
+            if entity_metadata:
+                if entity_metadata.get('wikidata_id') and 'wikidata_id' not in self.graph.nodes[entity]:
+                    self.graph.nodes[entity]['wikidata_id'] = entity_metadata['wikidata_id']
+                if entity_metadata.get('wikipedia_url') and 'wikipedia_url' not in self.graph.nodes[entity]:
+                    self.graph.nodes[entity]['wikipedia_url'] = entity_metadata['wikipedia_url']
+                if entity_metadata.get('is_linked') and 'is_linked' not in self.graph.nodes[entity]:
+                    self.graph.nodes[entity]['is_linked'] = True
 
         # Increment mention count
         self.graph.nodes[entity]['mention_count'] += 1

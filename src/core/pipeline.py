@@ -19,6 +19,7 @@ import networkx as nx
 from .data_loader import DataLoader
 from .ner_engine import NEREngine
 from .network_builder import NetworkBuilder
+from .entity_linker import EntityLinker
 
 try:
     from ..utils.exporters import export_all_formats
@@ -48,7 +49,9 @@ class SocialNetworkPipeline:
         confidence_threshold: float = 0.85,
         enable_cache: bool = True,
         use_entity_resolver: bool = True,
-        create_author_edges: bool = True
+        create_author_edges: bool = True,
+        enable_entity_linking: bool = False,
+        entity_linking_config: Optional[Dict] = None
     ):
         """
         Initialize the pipeline.
@@ -60,6 +63,13 @@ class SocialNetworkPipeline:
             enable_cache: Whether to cache NER results
             use_entity_resolver: Whether to deduplicate entities
             create_author_edges: Whether to create author-to-author edges
+            enable_entity_linking: Whether to enable entity linking (Phase 2)
+            entity_linking_config: Configuration for entity linker
+                {
+                    'confidence_threshold': 0.7,
+                    'enable_cache': True,
+                    'top_k': 5
+                }
         """
         logger.info("Initializing Social Network Pipeline")
 
@@ -76,6 +86,26 @@ class SocialNetworkPipeline:
             create_author_edges=create_author_edges
         )
 
+        # Initialize entity linker if enabled
+        self.enable_entity_linking = enable_entity_linking
+        self.entity_linker: Optional[EntityLinker] = None
+
+        if enable_entity_linking:
+            logger.info("Entity linking enabled - initializing EntityLinker")
+            # Default config
+            default_config = {
+                'confidence_threshold': 0.7,
+                'enable_cache': True,
+                'device': device,
+                'top_k': 5
+            }
+            # Merge with user config
+            if entity_linking_config:
+                default_config.update(entity_linking_config)
+
+            self.entity_linker = EntityLinker(**default_config)
+            logger.info("EntityLinker initialized successfully")
+
         # Pipeline state
         self.graph: Optional[nx.DiGraph] = None
         self.statistics: Optional[Dict] = None
@@ -83,6 +113,7 @@ class SocialNetworkPipeline:
             'total_posts': 0,
             'total_chunks': 0,
             'entities_extracted': 0,
+            'entities_linked': 0,
             'errors': []
         }
 
@@ -240,6 +271,50 @@ class SocialNetworkPipeline:
             logger.error(error_msg)
             self.processing_metadata['errors'].append(error_msg)
             raise
+
+        # Step 2.5: Link entities to Wikipedia/Wikidata if enabled
+        if self.enable_entity_linking and self.entity_linker:
+            try:
+                logger.debug(f"Chunk {chunk_num}: Linking entities to Wikipedia/Wikidata")
+
+                # Flatten entities for batch processing
+                all_entities = []
+                entity_indices = []  # Track which post each entity belongs to
+
+                for post_idx, entities in enumerate(entities_batch):
+                    for entity in entities:
+                        # Add language info if available
+                        if detect_languages and post_idx < len(languages):
+                            entity['language'] = languages[post_idx]
+                        all_entities.append(entity)
+                        entity_indices.append(post_idx)
+
+                # Link entities in batch
+                if all_entities:
+                    linked_entities = self.entity_linker.link_entities_batch(
+                        all_entities,
+                        batch_size=batch_size,
+                        show_progress=False  # Don't show linking progress for now
+                    )
+
+                    # Count successfully linked entities
+                    linked_count = sum(1 for e in linked_entities if e.get('is_linked', False))
+                    self.processing_metadata['entities_linked'] += linked_count
+
+                    # Reconstruct entities_batch with linked information
+                    linked_entities_batch = [[] for _ in range(len(entities_batch))]
+                    for entity, post_idx in zip(linked_entities, entity_indices):
+                        linked_entities_batch[post_idx].append(entity)
+
+                    entities_batch = linked_entities_batch
+
+                    logger.debug(f"Chunk {chunk_num}: Linked {linked_count}/{len(all_entities)} entities")
+
+            except Exception as e:
+                error_msg = f"Entity linking error in chunk {chunk_num}: {e}"
+                logger.warning(error_msg)
+                self.processing_metadata['errors'].append(error_msg)
+                # Continue with unlinked entities
 
         # Step 3: Build network
         for i, (author, entities) in enumerate(zip(authors, entities_batch)):
