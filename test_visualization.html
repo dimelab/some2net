@@ -98,7 +98,7 @@
     </style>
     <script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
     <script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/graphology-layout-forceatlas2.min.js"></script>
+    <script src="https://unpkg.com/graphology-layout-forceatlas2@0.10.1/dist/graphology-layout-forceatlas2.min.js"></script>
 </head>
 <body>
     <div id="container">
@@ -149,6 +149,15 @@
             graphologyLibrary: typeof graphologyLibrary,
             graphologyLayoutForceAtlas2: typeof graphologyLayoutForceAtlas2
         });
+
+        // Find Force Atlas 2 in window object
+        const fa2Keys = Object.keys(window).filter(k => k.toLowerCase().includes('atlas') || k.toLowerCase().includes('force'));
+        console.log('Keys containing "atlas" or "force":', fa2Keys);
+
+        // Check if it's attached to graphology
+        if (typeof graphology === 'object') {
+            console.log('Graphology object keys:', Object.keys(graphology));
+        }
 
         // Graph data will be injected here
         const graphData = {"nodes": [{"key": "1", "label": "Node 1", "size": 5, "color": "#1f77b4"}, {"key": "2", "label": "Node 2", "size": 8, "color": "#ff7f0e"}, {"key": "3", "label": "Node 3", "size": 6, "color": "#2ca02c"}], "edges": [{"key": "edge_0", "source": "1", "target": "2", "weight": 5}, {"key": "edge_1", "source": "2", "target": "3", "weight": 3}]};
@@ -218,19 +227,24 @@
 
         // Layout controls
         document.getElementById('start-layout').addEventListener('click', () => {
+            if (!forceAtlas2Fn) {
+                alert('Force Atlas 2 library not loaded. Please refresh the page.');
+                return;
+            }
+
             if (!layoutRunning) {
                 layoutRunning = true;
                 console.log('Starting layout animation...');
                 layoutInterval = setInterval(() => {
                     try {
-                        graphologyLayoutForceAtlas2.assign(graph, {
+                        forceAtlas2Fn.assign(graph, {
                             iterations: 2,
                             settings: sensibleSettings
                         });
                         renderer.refresh();
                     } catch (e) {
                         console.error('Layout error:', e);
-                        alert('Force Atlas 2 library failed to load. Try refreshing the page.');
+                        alert('Layout error: ' + e.message);
                         clearInterval(layoutInterval);
                         layoutRunning = false;
                     }
@@ -298,22 +312,33 @@
             sensibleSettings.barnesHutOptimize = e.target.checked;
         });
 
+        // Try to find the Force Atlas 2 function
+        let forceAtlas2Fn = null;
+        if (typeof graphologyLayoutForceAtlas2 !== 'undefined') {
+            forceAtlas2Fn = graphologyLayoutForceAtlas2;
+        } else if (typeof window.graphologyLayoutForceAtlas2 !== 'undefined') {
+            forceAtlas2Fn = window.graphologyLayoutForceAtlas2;
+        } else if (typeof graphology !== 'undefined' && graphology.layoutForceAtlas2) {
+            forceAtlas2Fn = graphology.layoutForceAtlas2;
+        }
+
         // Initial layout
         console.log('Running initial layout...');
-        try {
-            if (typeof graphologyLayoutForceAtlas2 !== 'undefined') {
-                console.log('Force Atlas 2 library loaded successfully');
-                graphologyLayoutForceAtlas2.assign(graph, {
+        if (forceAtlas2Fn) {
+            console.log('Force Atlas 2 library found!');
+            try {
+                forceAtlas2Fn.assign(graph, {
                     iterations: 100,
                     settings: sensibleSettings
                 });
                 renderer.refresh();
                 console.log('Initial layout complete');
-            } else {
-                console.error('Force Atlas 2 library not loaded. Available globals:', Object.keys(window));
+            } catch (e) {
+                console.error('Failed to run initial layout:', e);
             }
-        } catch (e) {
-            console.error('Failed to run initial layout:', e);
+        } else {
+            console.warn('Force Atlas 2 library not loaded - nodes will appear in random positions');
+            console.log('Layout controls will not work. Please refresh the page.');
         }
 
         // Node hover events
