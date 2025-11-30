@@ -536,52 +536,54 @@ def display_results(graph, stats, layout_iterations, enable_entity_linking=False
     # Main metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("🔵 Total Nodes", f"{stats['total_nodes']:,}")
+        st.metric("🔵 Total Nodes", f"{stats.get('total_nodes', 0):,}")
     with col2:
-        st.metric("➡️ Total Edges", f"{stats['total_edges']:,}")
+        st.metric("➡️ Total Edges", f"{stats.get('total_edges', 0):,}")
     with col3:
-        st.metric("👥 Authors", f"{stats['authors']:,}")
+        st.metric("👥 Authors", f"{stats.get('authors', 0):,}")
     with col4:
-        total_entities = stats['persons'] + stats['locations'] + stats['organizations']
+        total_entities = stats.get('persons', 0) + stats.get('locations', 0) + stats.get('organizations', 0)
         st.metric("🏷️ Entities", f"{total_entities:,}")
 
     # Detailed entity metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("👤 Persons", f"{stats['persons']:,}")
+        st.metric("👤 Persons", f"{stats.get('persons', 0):,}")
     with col2:
-        st.metric("📍 Locations", f"{stats['locations']:,}")
+        st.metric("📍 Locations", f"{stats.get('locations', 0):,}")
     with col3:
-        st.metric("🏢 Organizations", f"{stats['organizations']:,}")
+        st.metric("🏢 Organizations", f"{stats.get('organizations', 0):,}")
     with col4:
-        st.metric("🔗 Density", f"{stats['density']:.4f}")
+        st.metric("🔗 Density", f"{stats.get('density', 0.0):.4f}")
 
     # Processing metadata
     with st.expander("📊 Processing Details"):
-        metadata = stats['processing_metadata']
+        metadata = stats.get('processing_metadata', {})
 
         # Display processing metadata with entity linking stats if available
         if metadata.get('entities_linked', 0) > 0:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Posts Processed", f"{metadata['total_posts']:,}")
+                st.metric("Posts Processed", f"{metadata.get('total_posts', 0):,}")
             with col2:
-                st.metric("Chunks Processed", f"{metadata['total_chunks']:,}")
+                st.metric("Chunks Processed", f"{metadata.get('total_chunks', 0):,}")
             with col3:
-                st.metric("Entities Extracted", f"{metadata['entities_extracted']:,}")
+                st.metric("Entities Extracted", f"{metadata.get('entities_extracted', 0):,}")
             with col4:
-                linked_pct = (metadata['entities_linked'] / metadata['entities_extracted'] * 100) if metadata['entities_extracted'] > 0 else 0
-                st.metric("Entities Linked", f"{metadata['entities_linked']:,}", f"{linked_pct:.1f}%")
+                entities_extracted = metadata.get('entities_extracted', 0)
+                entities_linked = metadata.get('entities_linked', 0)
+                linked_pct = (entities_linked / entities_extracted * 100) if entities_extracted > 0 else 0
+                st.metric("Entities Linked", f"{entities_linked:,}", f"{linked_pct:.1f}%")
         else:
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Posts Processed", f"{metadata['total_posts']:,}")
+                st.metric("Posts Processed", f"{metadata.get('total_posts', 0):,}")
             with col2:
-                st.metric("Chunks Processed", f"{metadata['total_chunks']:,}")
+                st.metric("Chunks Processed", f"{metadata.get('total_chunks', 0):,}")
             with col3:
-                st.metric("Entities Extracted", f"{metadata['entities_extracted']:,}")
+                st.metric("Entities Extracted", f"{metadata.get('entities_extracted', 0):,}")
 
-        if metadata['errors']:
+        if metadata.get('errors'):
             st.warning(f"⚠️ {len(metadata['errors'])} errors encountered during processing")
             with st.expander("View errors"):
                 for i, error in enumerate(metadata['errors'][:10], 1):
