@@ -98,7 +98,7 @@
     </style>
     <script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
     <script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
-    <script src="https://unpkg.com/graphology-layout-forceatlas2@0.10.1/dist/graphology-layout-forceatlas2.min.js"></script>
+    <script src="https://unpkg.com/graphology-library@0.8.1/dist/graphology-library.min.js"></script>
 </head>
 <body>
     <div id="container">
@@ -106,32 +106,11 @@
             <h3>Layout Controls</h3>
             <button id="start-layout">▶️ Start Layout</button>
             <button id="stop-layout">⏸️ Stop Layout</button>
-            <button id="reset-layout">🔄 Reset</button>
-
-            <label>
-                Gravity: <span id="gravity-value" class="control-value">1.0</span>
-                <input type="range" id="gravity" min="0" max="5" step="0.1" value="1.0">
-            </label>
-
-            <label>
-                Scaling: <span id="scaling-value" class="control-value">10</span>
-                <input type="range" id="scaling" min="1" max="50" step="1" value="10">
-            </label>
-
-            <label>
-                Edge Weight: <span id="edge-weight-value" class="control-value">1.0</span>
-                <input type="range" id="edge-weight" min="0" max="2" step="0.1" value="1.0">
-            </label>
 
             <label>
                 Node Size: <span id="node-size-value" class="control-value">1.0</span>
                 <input type="range" id="node-size" min="0.1" max="3.0" step="0.1" value="1.0">
             </label>
-
-            <div class="checkbox-label">
-                <input type="checkbox" id="barnes-hut" checked>
-                <span>Barnes-Hut Optimization</span>
-            </div>
         </div>
 
         <div id="stats">
@@ -160,7 +139,7 @@
         }
 
         // Graph data will be injected here
-        const graphData = {"nodes": [{"key": "1", "label": "Node 1", "size": 5, "color": "#1f77b4"}, {"key": "2", "label": "Node 2", "size": 8, "color": "#ff7f0e"}, {"key": "3", "label": "Node 3", "size": 6, "color": "#2ca02c"}], "edges": [{"key": "edge_0", "source": "1", "target": "2", "weight": 5}, {"key": "edge_1", "source": "2", "target": "3", "weight": 3}]};
+        const graphData = {"nodes": [{"key": "1", "label": "Node 1", "size": 5, "color": "#1f77b4"}, {"key": "2", "label": "Node 2", "size": 8, "color": "#ff7f0e"}, {"key": "3", "label": "Node 3", "size": 6, "color": "#2ca02c"}, {"key": "4", "label": "Node 4", "size": 7, "color": "#d62728"}], "edges": [{"key": "edge_0", "source": "1", "target": "2", "weight": 5}, {"key": "edge_1", "source": "2", "target": "3", "weight": 3}, {"key": "edge_2", "source": "3", "target": "4", "weight": 4}, {"key": "edge_3", "source": "4", "target": "1", "weight": 2}]};
 
         // Create graph
         const graph = new graphology.DirectedGraph();
@@ -168,15 +147,21 @@
         // Store original node sizes
         const originalNodeSizes = {};
 
-        // Add nodes and edges
-        graphData.nodes.forEach(node => {
+        // Add nodes with circular layout
+        const nodeCount = graphData.nodes.length;
+        graphData.nodes.forEach((node, index) => {
             originalNodeSizes[node.key] = node.size;
+
+            // Circular layout
+            const angle = (2 * Math.PI * index) / nodeCount;
+            const radius = 0.5;
+
             graph.addNode(node.key, {
                 label: node.label,
                 size: node.size,
                 color: node.color,
-                x: Math.random(),
-                y: Math.random()
+                x: Math.cos(angle) * radius,
+                y: Math.sin(angle) * radius
             });
         });
 
@@ -209,91 +194,37 @@
             maxCameraRatio: 10
         });
 
-        // Force Atlas 2 settings
+        // Force Atlas 2 using graphologyLibrary like 4cat
+        const forceatlas2 = graphologyLibrary.layoutForceAtlas2;
+        const FA2Layout = graphologyLibrary.FA2Layout;
+
+        let fa2Layout = null;
         let layoutRunning = false;
-        let layoutInterval = null;
-        let sensibleSettings = {
-            adjustSizes: false,
-            barnesHutOptimize: true,
-            barnesHutTheta: 1.2,
-            edgeWeightInfluence: 1.0,
-            gravity: 1.0,
-            linLogMode: false,
-            outboundAttractionDistribution: true,
-            scalingRatio: 10,
-            slowDown: 1,
-            strongGravityMode: false
-        };
+
+        const fa2Settings = forceatlas2.inferSettings(graph);
 
         // Layout controls
         document.getElementById('start-layout').addEventListener('click', () => {
-            if (!forceAtlas2Fn) {
-                alert('Force Atlas 2 library not loaded. Please refresh the page.');
-                return;
-            }
-
             if (!layoutRunning) {
+                console.log('Starting Force Atlas 2 layout...');
+
+                if (!fa2Layout) {
+                    fa2Layout = new FA2Layout(graph, {
+                        settings: fa2Settings
+                    });
+                }
+
+                fa2Layout.start();
                 layoutRunning = true;
-                console.log('Starting layout animation...');
-                layoutInterval = setInterval(() => {
-                    try {
-                        forceAtlas2Fn.assign(graph, {
-                            iterations: 2,
-                            settings: sensibleSettings
-                        });
-                        renderer.refresh();
-                    } catch (e) {
-                        console.error('Layout error:', e);
-                        alert('Layout error: ' + e.message);
-                        clearInterval(layoutInterval);
-                        layoutRunning = false;
-                    }
-                }, 50);
             }
         });
 
         document.getElementById('stop-layout').addEventListener('click', () => {
-            if (layoutRunning) {
+            if (layoutRunning && fa2Layout) {
+                console.log('Stopping Force Atlas 2 layout...');
+                fa2Layout.stop();
                 layoutRunning = false;
-                if (layoutInterval) {
-                    clearInterval(layoutInterval);
-                    layoutInterval = null;
-                }
             }
-        });
-
-        document.getElementById('reset-layout').addEventListener('click', () => {
-            // Stop layout if running
-            if (layoutRunning) {
-                layoutRunning = false;
-                if (layoutInterval) {
-                    clearInterval(layoutInterval);
-                    layoutInterval = null;
-                }
-            }
-
-            // Randomize positions
-            graph.forEachNode((node) => {
-                graph.setNodeAttribute(node, 'x', Math.random());
-                graph.setNodeAttribute(node, 'y', Math.random());
-            });
-            renderer.refresh();
-        });
-
-        // Update settings
-        document.getElementById('gravity').addEventListener('input', (e) => {
-            sensibleSettings.gravity = parseFloat(e.target.value);
-            document.getElementById('gravity-value').textContent = e.target.value;
-        });
-
-        document.getElementById('scaling').addEventListener('input', (e) => {
-            sensibleSettings.scalingRatio = parseFloat(e.target.value);
-            document.getElementById('scaling-value').textContent = e.target.value;
-        });
-
-        document.getElementById('edge-weight').addEventListener('input', (e) => {
-            sensibleSettings.edgeWeightInfluence = parseFloat(e.target.value);
-            document.getElementById('edge-weight-value').textContent = e.target.value;
         });
 
         document.getElementById('node-size').addEventListener('input', (e) => {
@@ -308,38 +239,7 @@
             renderer.refresh();
         });
 
-        document.getElementById('barnes-hut').addEventListener('change', (e) => {
-            sensibleSettings.barnesHutOptimize = e.target.checked;
-        });
-
-        // Try to find the Force Atlas 2 function
-        let forceAtlas2Fn = null;
-        if (typeof graphologyLayoutForceAtlas2 !== 'undefined') {
-            forceAtlas2Fn = graphologyLayoutForceAtlas2;
-        } else if (typeof window.graphologyLayoutForceAtlas2 !== 'undefined') {
-            forceAtlas2Fn = window.graphologyLayoutForceAtlas2;
-        } else if (typeof graphology !== 'undefined' && graphology.layoutForceAtlas2) {
-            forceAtlas2Fn = graphology.layoutForceAtlas2;
-        }
-
-        // Initial layout
-        console.log('Running initial layout...');
-        if (forceAtlas2Fn) {
-            console.log('Force Atlas 2 library found!');
-            try {
-                forceAtlas2Fn.assign(graph, {
-                    iterations: 100,
-                    settings: sensibleSettings
-                });
-                renderer.refresh();
-                console.log('Initial layout complete');
-            } catch (e) {
-                console.error('Failed to run initial layout:', e);
-            }
-        } else {
-            console.warn('Force Atlas 2 library not loaded - nodes will appear in random positions');
-            console.log('Layout controls will not work. Please refresh the page.');
-        }
+        console.log('Force Atlas 2 initialized. Click "Start Layout" to begin.');
 
         // Node hover events
         renderer.on('enterNode', ({ node }) => {
