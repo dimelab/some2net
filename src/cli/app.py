@@ -368,7 +368,8 @@ def main():
             display_results(
                 st.session_state.graph,
                 st.session_state.stats,
-                layout_iterations
+                layout_iterations,
+                enable_entity_linking
             )
 
 
@@ -522,7 +523,7 @@ def process_data_with_pipeline(
             st.code(traceback.format_exc())
 
 
-def display_results(graph, stats, layout_iterations):
+def display_results(graph, stats, layout_iterations, enable_entity_linking=False):
     """Display processing results, statistics, and visualization."""
 
     st.header("4️⃣ Results")
