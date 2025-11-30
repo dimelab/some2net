@@ -249,23 +249,48 @@ class SocialNetworkPipeline:
         logger.info(f"Looking for text column: '{text_column}'")
         logger.info(f"Available columns: {list(chunk.columns)[:10]}...")  # First 10 columns
 
+        # Check if chunk is empty
+        if len(chunk) == 0:
+            logger.warning(f"Chunk {chunk_num} is empty, skipping")
+            return
+
         # Check if columns exist
         if author_column not in chunk.columns:
             raise KeyError(f"Author column '{author_column}' not found in data. Available columns: {list(chunk.columns)[:20]}")
         if text_column not in chunk.columns:
             raise KeyError(f"Text column '{text_column}' not found in data. Available columns: {list(chunk.columns)[:20]}")
 
-        # Extract authors and texts
-        authors = chunk[author_column].tolist()
-        texts = chunk[text_column].tolist()
+        # Extract authors and texts - handle both Series and list types
+        author_data = chunk[author_column]
+        text_data = chunk[text_column]
+
+        # Convert to list if it's a pandas Series
+        if hasattr(author_data, 'tolist'):
+            authors = author_data.tolist()
+        else:
+            authors = list(author_data) if not isinstance(author_data, list) else author_data
+
+        if hasattr(text_data, 'tolist'):
+            texts = text_data.tolist()
+        else:
+            texts = list(text_data) if not isinstance(text_data, list) else text_data
 
         logger.info(f"Chunk {chunk_num}: Extracted {len(authors)} authors, {len(texts)} texts")
+        logger.info(f"Chunk {chunk_num}: Author data type: {type(author_data)}, Text data type: {type(text_data)}")
 
         # Get post IDs if available
-        post_ids = chunk.get('post_id', chunk.get('id', [None] * len(texts))).tolist()
+        post_id_data = chunk.get('post_id', chunk.get('id', [None] * len(texts)))
+        if hasattr(post_id_data, 'tolist'):
+            post_ids = post_id_data.tolist()
+        else:
+            post_ids = list(post_id_data) if not isinstance(post_id_data, list) else post_id_data
 
         # Get timestamps if available
-        timestamps = chunk.get('timestamp', chunk.get('created_at', [None] * len(texts))).tolist()
+        timestamp_data = chunk.get('timestamp', chunk.get('created_at', [None] * len(texts)))
+        if hasattr(timestamp_data, 'tolist'):
+            timestamps = timestamp_data.tolist()
+        else:
+            timestamps = list(timestamp_data) if not isinstance(timestamp_data, list) else timestamp_data
 
         logger.debug(f"Chunk {chunk_num}: Processing {len(texts)} posts")
 
