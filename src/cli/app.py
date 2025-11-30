@@ -221,7 +221,18 @@ def main():
             if file_type == 'csv':
                 preview_df = pd.read_csv(temp_path, nrows=10)
             else:
-                preview_df = pd.read_json(temp_path, lines=True, nrows=10)
+                # Use json_normalize to flatten nested structures (matches actual loading)
+                import json
+                records = []
+                with open(temp_path, 'r', encoding='utf-8') as f:
+                    for i, line in enumerate(f):
+                        if i >= 10:  # Only read first 10 rows
+                            break
+                        try:
+                            records.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+                preview_df = pd.json_normalize(records, sep='.')
 
             # Handle duplicate column names
             if preview_df.columns.duplicated().any():
@@ -269,24 +280,50 @@ def main():
         # Column selection
         st.header("2️⃣ Select Columns")
 
-        # Smart column detection (only if not already selected)
-        # Try to find author column
-        if 'author_col_selection' not in st.session_state:
+        # Smart column detection (only on first file upload for this file)
+        # Use file name + size as unique identifier
+        file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+
+        # Check if this is a new file (different from last processed)
+        if 'last_file_id' not in st.session_state or st.session_state.last_file_id != file_id:
+            # New file - run smart detection
+            st.session_state.last_file_id = file_id
+
+            # Try to find author column (supports nested fields like data.user.unique_id or datauserunique_id)
             author_default_index = 0
-            for preferred in ['author', 'author_full', 'username', 'user']:
-                if preferred in preview_df.columns:
-                    author_default_index = list(preview_df.columns).index(preferred)
+            author_patterns = ['author', 'username', 'user', 'unique_id', 'userid', 'user_id', 'nickname']
+            for col_idx, col_name in enumerate(preview_df.columns):
+                col_lower = col_name.lower()
+                # Check if any pattern appears in the column name
+                # Prioritize exact matches, then partial matches
+                if col_lower in author_patterns:
+                    author_default_index = col_idx
                     break
+                elif any(pattern in col_lower for pattern in author_patterns):
+                    author_default_index = col_idx
+                    # Don't break - keep looking for exact match
             st.session_state.author_col_selection = author_default_index
 
-        # Try to find text column
-        if 'text_col_selection' not in st.session_state:
+            # Try to find text column (supports nested fields like data.text or datatext)
             text_default_index = 0
-            for preferred in ['body', 'text', 'content', 'message', 'post']:
-                if preferred in preview_df.columns:
-                    text_default_index = list(preview_df.columns).index(preferred)
+            text_patterns = ['text', 'body', 'content', 'message', 'post', 'desc', 'description', 'comment']
+            for col_idx, col_name in enumerate(preview_df.columns):
+                col_lower = col_name.lower()
+                # Check if any pattern appears in the column name
+                # Prioritize exact matches, then partial matches
+                if col_lower in text_patterns:
+                    text_default_index = col_idx
                     break
+                elif any(pattern in col_lower for pattern in text_patterns):
+                    text_default_index = col_idx
+                    # Don't break - keep looking for exact match
             st.session_state.text_col_selection = text_default_index
+
+        # Ensure selections exist (fallback for edge cases)
+        if 'author_col_selection' not in st.session_state:
+            st.session_state.author_col_selection = 0
+        if 'text_col_selection' not in st.session_state:
+            st.session_state.text_col_selection = 0
 
         col1, col2 = st.columns(2)
 
@@ -298,8 +335,6 @@ def main():
                 help="Column containing post authors/usernames",
                 key="author_column_select"
             )
-            # Update session state with current selection
-            st.session_state.author_col_selection = list(preview_df.columns).index(author_col)
 
         with col2:
             text_col = st.selectbox(
@@ -309,13 +344,22 @@ def main():
                 help="Column containing post text/content",
                 key="text_column_select"
             )
-            # Update session state with current selection
-            st.session_state.text_col_selection = list(preview_df.columns).index(text_col)
+
+        # Update session state with current user selection
+        # This allows user changes to persist across reruns
+        st.session_state.author_col_selection = list(preview_df.columns).index(author_col)
+        st.session_state.text_col_selection = list(preview_df.columns).index(text_col)
 
         # Show sample data with selected columns
         st.caption("Sample data with selected columns:")
-        sample_display = preview_df[[author_col, text_col]].head(3)
+        sample_display = preview_df[[author_col, text_col]].head(5)
         st.dataframe(sample_display, use_container_width=True)
+
+        # Check for empty text values in preview
+        empty_text_count = preview_df[text_col].isna().sum()
+        if empty_text_count > 0:
+            empty_pct = (empty_text_count / len(preview_df)) * 100
+            st.warning(f"⚠️ {empty_text_count}/{len(preview_df)} ({empty_pct:.1f}%) preview rows have empty text. Rows with empty text will be skipped during processing.")
 
         # Validation
         if not entity_types_to_extract:
