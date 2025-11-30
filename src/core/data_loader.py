@@ -192,6 +192,17 @@ class DataLoader:
                         dup_mask = chunk.columns.duplicated(keep='first')
                         chunk = chunk.loc[:, ~dup_mask]
 
+                    # Debug: Check if columns exist
+                    if author_column not in chunk.columns:
+                        logger.error(f"Author column '{author_column}' not found in chunk {chunk_count + 1}")
+                        logger.error(f"Available columns: {list(chunk.columns)[:20]}")
+                        raise KeyError(f"Author column '{author_column}' not found. Available: {list(chunk.columns)[:10]}")
+
+                    if text_column not in chunk.columns:
+                        logger.error(f"Text column '{text_column}' not found in chunk {chunk_count + 1}")
+                        logger.error(f"Available columns: {list(chunk.columns)[:20]}")
+                        raise KeyError(f"Text column '{text_column}' not found. Available: {list(chunk.columns)[:10]}")
+
                     # Handle missing values and ensure string type
                     chunk[author_column] = chunk[author_column].fillna('unknown').astype(str)
                     chunk[text_column] = chunk[text_column].fillna('').astype(str)
