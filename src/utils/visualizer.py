@@ -3,6 +3,7 @@ import networkx as nx
 import plotly.graph_objects as go
 from typing import Dict, Tuple, Optional, List
 import numpy as np
+import math
 
 
 class NetworkVisualizer:
@@ -36,10 +37,17 @@ class NetworkVisualizer:
         # Export nodes
         for node_id, data in graph.nodes(data=True):
             node_type = data.get('node_type', 'unknown')
+            mention_count = data.get('mention_count', 0)
+
+            # Use logarithmic scaling to reduce size differences
+            # Formula: base_size + log(1 + mentions) * scale_factor
+            # This compresses large differences while keeping visual distinction
+            node_size = 3 + math.log1p(mention_count) * 1.5
+
             nodes.append({
                 'key': str(node_id),
                 'label': data.get('label', str(node_id)),
-                'size': 3 + data.get('mention_count', 0) * 0.5,  # Reduced base size and scaling
+                'size': node_size,
                 'color': self._get_node_color(node_type),
                 'type': node_type,
                 'mention_count': data.get('mention_count', 0),
