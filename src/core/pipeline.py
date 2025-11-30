@@ -243,9 +243,23 @@ class SocialNetworkPipeline:
     ):
         """Process a single chunk of data."""
 
+        # Debug: Log chunk info
+        logger.info(f"Chunk {chunk_num}: {len(chunk)} rows, {len(chunk.columns)} columns")
+        logger.info(f"Looking for author column: '{author_column}'")
+        logger.info(f"Looking for text column: '{text_column}'")
+        logger.info(f"Available columns: {list(chunk.columns)[:10]}...")  # First 10 columns
+
+        # Check if columns exist
+        if author_column not in chunk.columns:
+            raise KeyError(f"Author column '{author_column}' not found in data. Available columns: {list(chunk.columns)[:20]}")
+        if text_column not in chunk.columns:
+            raise KeyError(f"Text column '{text_column}' not found in data. Available columns: {list(chunk.columns)[:20]}")
+
         # Extract authors and texts
         authors = chunk[author_column].tolist()
         texts = chunk[text_column].tolist()
+
+        logger.info(f"Chunk {chunk_num}: Extracted {len(authors)} authors, {len(texts)} texts")
 
         # Get post IDs if available
         post_ids = chunk.get('post_id', chunk.get('id', [None] * len(texts))).tolist()

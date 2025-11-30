@@ -357,9 +357,22 @@ def main():
 
         # Check for empty text values in preview
         empty_text_count = preview_df[text_col].isna().sum()
+        total_preview = len(preview_df)
+        non_empty_count = total_preview - empty_text_count
+
         if empty_text_count > 0:
-            empty_pct = (empty_text_count / len(preview_df)) * 100
-            st.warning(f"⚠️ {empty_text_count}/{len(preview_df)} ({empty_pct:.1f}%) preview rows have empty text. Rows with empty text will be skipped during processing.")
+            empty_pct = (empty_text_count / total_preview) * 100
+            st.warning(f"⚠️ {empty_text_count}/{total_preview} ({empty_pct:.1f}%) preview rows have empty text. Only {non_empty_count} rows will be processed.")
+        else:
+            st.success(f"✅ All {total_preview} preview rows have text content!")
+
+        # Show sample of actual text content
+        non_empty_texts = preview_df[preview_df[text_col].notna()][text_col].head(3)
+        if len(non_empty_texts) > 0:
+            with st.expander("📝 Sample text content", expanded=False):
+                for i, text in enumerate(non_empty_texts, 1):
+                    text_str = str(text)[:200]
+                    st.text(f"{i}. {text_str}{'...' if len(str(text)) > 200 else ''}")
 
         # Validation
         if not entity_types_to_extract:
@@ -530,6 +543,18 @@ def process_data_with_pipeline(
             show_progress=False,
             progress_callback=progress_callback
         )
+
+        # Debug: Check what was processed
+        st.info(f"""
+        🔍 **Processing Debug Info:**
+        - Posts processed: {stats.get('processing_metadata', {}).get('total_posts', 0)}
+        - Chunks processed: {stats.get('processing_metadata', {}).get('total_chunks', 0)}
+        - Entities extracted: {stats.get('processing_metadata', {}).get('entities_extracted', 0)}
+        - Graph nodes: {graph.number_of_nodes()}
+        - Graph edges: {graph.number_of_edges()}
+        - Author column used: `{author_col}`
+        - Text column used: `{text_col}`
+        """)
 
         # Filter entities by selected types if needed
         # (This is now handled in the NER engine or can be done post-processing)
