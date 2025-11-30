@@ -56,8 +56,9 @@ setup(
             'pylint>=2.17.0',
             'mypy>=1.0.0',
         ],
-        'gpu': [
-            'torch>=2.0.0+cu118',
+        'advanced': [
+            'sentence-transformers>=2.2.0',
+            'requests>=2.28.0',
         ],
     },
 
