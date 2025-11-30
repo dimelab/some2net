@@ -357,7 +357,10 @@ def main():
                 detect_language,
                 create_author_edges,
                 use_entity_resolver,
-                layout_iterations
+                layout_iterations,
+                enable_entity_linking,
+                linking_confidence,
+                linking_cache
             )
 
         # Display results if already processed
@@ -383,7 +386,10 @@ def process_data_with_pipeline(
     detect_language: bool,
     create_author_edges: bool,
     use_entity_resolver: bool,
-    layout_iterations: int
+    layout_iterations: int,
+    enable_entity_linking: bool = False,
+    linking_confidence: float = 0.7,
+    linking_cache: bool = True
 ):
     """Process data using the integrated pipeline."""
 
