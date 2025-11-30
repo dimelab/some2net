@@ -277,7 +277,7 @@ class DataLoader:
 
                             # Yield chunk when it reaches chunksize
                             if len(chunk_data) >= chunksize:
-                                chunk_df = pd.DataFrame(chunk_data)
+                                chunk_df = pd.json_normalize(chunk_data, sep='.')
 
                                 # Validate columns on first chunk
                                 if chunk_count == 0:
@@ -302,7 +302,7 @@ class DataLoader:
 
                     # Yield remaining data as final chunk
                     if chunk_data:
-                        chunk_df = pd.DataFrame(chunk_data)
+                        chunk_df = pd.json_normalize(chunk_data, sep='.')
 
                         # Validate columns if this is the only chunk
                         if chunk_count == 0:
@@ -411,18 +411,30 @@ class DataLoader:
             return df.columns.tolist()
 
         elif suffix in ['.ndjson', '.jsonl']:
-            # Read first valid JSON line
-            with open(filepath, 'r', encoding=encoding) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            record = json.loads(line)
-                            return list(record.keys())
-                        except json.JSONDecodeError:
-                            continue
+            # Try multiple encodings
+            encodings_to_try = [encoding, 'utf-8', 'latin-1', 'cp1252']
 
-            raise ValueError("No valid JSON records found in NDJSON file")
+            for enc in encodings_to_try:
+                try:
+                    # Read first valid JSON line and flatten it
+                    with open(filepath, 'r', encoding=enc) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                try:
+                                    record = json.loads(line)
+                                    # Use json_normalize to flatten and get all nested field names
+                                    df = pd.json_normalize([record], sep='.')
+                                    return df.columns.tolist()
+                                except json.JSONDecodeError:
+                                    continue
+
+                    raise ValueError("No valid JSON records found in NDJSON file")
+
+                except UnicodeDecodeError:
+                    if enc == encodings_to_try[-1]:
+                        raise
+                    continue
 
         else:
             raise ValueError(f"Unsupported file format: {suffix}")
