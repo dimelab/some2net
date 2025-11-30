@@ -286,6 +286,8 @@ class EntityLinker:
         # Prepare input text
         # mGENRE expects format: "[START] entity_text [END] optional_context"
         if context:
+            # Use context window to limit input size
+            context = self._trim_context(context, entity_text, window=100)
             input_text = f"[START] {entity_text} [END] {context}"
         else:
             input_text = f"[START] {entity_text} [END]"
@@ -297,18 +299,18 @@ class EntityLinker:
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=512
+                max_length=256  # Reduced from 512
             ).to(self.device)
 
-            # Generate candidates
+            # Generate candidates with optimized settings for speed
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    num_beams=self.top_k,
-                    num_return_sequences=self.top_k,
+                    num_beams=3,  # Reduced from top_k (usually 5) for speed
+                    num_return_sequences=min(3, self.top_k),  # Match num_beams
                     output_scores=True,
                     return_dict_in_generate=True,
-                    max_length=128
+                    max_new_tokens=20  # Much shorter - entity titles are concise
                 )
 
             # Decode candidates
@@ -410,12 +412,12 @@ class EntityLinker:
         show_progress: bool = True
     ) -> List[Dict]:
         """
-        Link multiple entities with batch processing.
+        Link multiple entities with optimized batch processing.
 
         Args:
             entities: List of entity dictionaries with 'text', 'type', 'score'
                      Can optionally include 'context' and 'language'
-            batch_size: Number of entities to process at once
+            batch_size: Number of entities to process at once (GPU batch size)
             default_language: Default language if not specified per entity
             show_progress: Show progress bar
 
@@ -423,30 +425,94 @@ class EntityLinker:
             List of entity dictionaries enhanced with linking information
         """
         enhanced_entities = []
-        cache_hits = 0
-        cache_misses = 0
         linked_count = 0
 
-        for entity in entities:
+        # Separate entities into cached and uncached
+        to_process = []
+        cache_results = {}
+
+        for idx, entity in enumerate(entities):
             entity_text = entity.get('text', '').strip()
             entity_type = entity.get('type', 'ENTITY')
-            context = entity.get('context', None)
             language = entity.get('language', default_language)
 
             if not entity_text:
                 enhanced_entities.append(entity)
                 continue
 
-            # Attempt to link entity
-            link_result = self.link_entity(
-                entity_text,
-                entity_type,
-                language,
-                context
-            )
+            # Check cache first
+            if self.enable_cache and self.cache is not None:
+                cache_key = self._get_cache_key(entity_text, entity_type, language)
+                cached_result = self.cache.get(cache_key)
+                if cached_result is not None:
+                    cache_results[idx] = cached_result
+                    continue
 
-            # Enhance entity with linking information
+            # Custom KB lookup
+            if self.custom_kb:
+                kb_result = self._lookup_custom_kb(entity_text, entity_type)
+                if kb_result:
+                    cache_results[idx] = kb_result
+                    continue
+
+            to_process.append((idx, entity))
+
+        # Process uncached entities in batches
+        if to_process:
+            for batch_start in range(0, len(to_process), batch_size):
+                batch_end = min(batch_start + batch_size, len(to_process))
+                batch = to_process[batch_start:batch_end]
+
+                # Prepare batch inputs
+                batch_inputs = []
+                batch_metadata = []
+
+                for idx, entity in batch:
+                    entity_text = entity.get('text', '').strip()
+                    entity_type = entity.get('type', 'ENTITY')
+                    context = entity.get('context', None)
+                    language = entity.get('language', default_language)
+
+                    # Use context window to limit input size
+                    if context:
+                        context = self._trim_context(context, entity_text, window=100)
+                        input_text = f"[START] {entity_text} [END] {context}"
+                    else:
+                        input_text = f"[START] {entity_text} [END]"
+
+                    batch_inputs.append(input_text)
+                    batch_metadata.append({
+                        'idx': idx,
+                        'entity_text': entity_text,
+                        'entity_type': entity_type,
+                        'language': language
+                    })
+
+                # Process batch
+                batch_results = self._process_batch(batch_inputs, batch_metadata)
+
+                # Store results
+                for meta, result in zip(batch_metadata, batch_results):
+                    cache_results[meta['idx']] = result
+
+                    # Cache result
+                    if self.enable_cache and self.cache is not None:
+                        cache_key = self._get_cache_key(
+                            meta['entity_text'],
+                            meta['entity_type'],
+                            meta['language']
+                        )
+                        self.cache.set(cache_key, result)
+
+        # Reconstruct enhanced entities in original order
+        for idx, entity in enumerate(entities):
+            entity_text = entity.get('text', '').strip()
+
+            if not entity_text:
+                continue
+
             enhanced_entity = entity.copy()
+            link_result = cache_results.get(idx)
 
             if link_result:
                 enhanced_entity.update({
@@ -464,10 +530,136 @@ class EntityLinker:
 
             enhanced_entities.append(enhanced_entity)
 
-        if self.enable_cache:
-            print(f"🔗 Entity linking: {linked_count}/{len(entities)} linked successfully")
+        print(f"🔗 Entity linking: {linked_count}/{len(entities)} linked successfully")
 
         return enhanced_entities
+
+    def _trim_context(self, context: str, entity_text: str, window: int = 100) -> str:
+        """
+        Trim context to a window around the entity mention.
+
+        Args:
+            context: Full context text
+            entity_text: Entity text to find
+            window: Character window size on each side
+
+        Returns:
+            Trimmed context string
+        """
+        # Find entity position in context
+        entity_lower = entity_text.lower()
+        context_lower = context.lower()
+        pos = context_lower.find(entity_lower)
+
+        if pos == -1:
+            # Entity not found in context, return first part
+            return context[:window * 2]
+
+        # Extract window around entity
+        start = max(0, pos - window)
+        end = min(len(context), pos + len(entity_text) + window)
+
+        return context[start:end].strip()
+
+    def _process_batch(
+        self,
+        batch_inputs: List[str],
+        batch_metadata: List[Dict]
+    ) -> List[Optional[Dict]]:
+        """
+        Process a batch of entity linking requests efficiently.
+
+        Args:
+            batch_inputs: List of formatted input texts
+            batch_metadata: List of metadata dicts for each input
+
+        Returns:
+            List of linking results (or None for failed links)
+        """
+        try:
+            # Tokenize entire batch at once
+            inputs = self.tokenizer(
+                batch_inputs,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=256  # Reduced from 512
+            ).to(self.device)
+
+            # Generate candidates with optimized settings
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    num_beams=3,  # Reduced from top_k (usually 5+)
+                    num_return_sequences=3,  # Match num_beams
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    max_new_tokens=20  # Shorter - entity titles are short
+                )
+
+            # Decode all outputs at once
+            all_candidates = self.tokenizer.batch_decode(
+                outputs.sequences,
+                skip_special_tokens=True
+            )
+
+            # Calculate confidence scores
+            if hasattr(outputs, 'sequences_scores'):
+                all_scores = torch.softmax(
+                    outputs.sequences_scores.view(len(batch_inputs), 3),
+                    dim=1
+                ).cpu().numpy()
+            else:
+                all_scores = np.ones((len(batch_inputs), 3)) / 3
+
+            # Process results for each input
+            results = []
+            for i, meta in enumerate(batch_metadata):
+                # Extract candidates for this input
+                start_idx = i * 3
+                end_idx = start_idx + 3
+                candidates = all_candidates[start_idx:end_idx]
+                scores = all_scores[i]
+
+                # Parse candidates
+                candidate_list = []
+                for j, (candidate, score) in enumerate(zip(candidates, scores)):
+                    parsed = self._parse_candidate(candidate)
+                    if parsed:
+                        candidate_list.append({
+                            'rank': j + 1,
+                            'wikipedia_title': parsed['title'],
+                            'language': parsed['language'],
+                            'confidence': float(score)
+                        })
+
+                # Get best candidate
+                if candidate_list and candidate_list[0]['confidence'] >= self.confidence_threshold:
+                    best = candidate_list[0]
+
+                    # Get Wikidata ID
+                    wikidata_id = self._get_wikidata_id(best['wikipedia_title'], best['language'])
+
+                    result = {
+                        'wikipedia_title': best['wikipedia_title'],
+                        'wikidata_id': wikidata_id,
+                        'wikipedia_url': self._build_wikipedia_url(best['wikipedia_title'], best['language']),
+                        'canonical_name': best['wikipedia_title'].replace('_', ' '),
+                        'language_variants': self._extract_language_variants(candidate_list),
+                        'linking_confidence': best['confidence'],
+                        'candidates': candidate_list,
+                        'disambiguation_method': 'batch'
+                    }
+                    results.append(result)
+                else:
+                    results.append(None)
+
+            return results
+
+        except Exception as e:
+            logger.warning(f"Batch processing error: {e}")
+            # Fall back to returning None for all
+            return [None] * len(batch_inputs)
 
     def _parse_candidate(self, candidate: str) -> Optional[Dict]:
         """
