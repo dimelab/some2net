@@ -39,7 +39,7 @@ class NetworkVisualizer:
             nodes.append({
                 'key': str(node_id),
                 'label': data.get('label', str(node_id)),
-                'size': 10 + data.get('mention_count', 0) * 2,
+                'size': 3 + data.get('mention_count', 0) * 0.5,  # Reduced base size and scaling
                 'color': self._get_node_color(node_type),
                 'type': node_type,
                 'mention_count': data.get('mention_count', 0),

@@ -98,7 +98,7 @@
     </style>
     <script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
     <script src="https://unpkg.com/sigma@2.4.0/build/sigma.min.js"></script>
-    <script src="https://unpkg.com/graphology-layout-forceatlas2@0.10.1/build/graphology-layout-forceatlas2.min.js"></script>
+    <script src="https://unpkg.com/graphology-layout-forceatlas2@0.10.1"></script>
 </head>
 <body>
     <div id="container">
@@ -123,6 +123,11 @@
                 <input type="range" id="edge-weight" min="0" max="2" step="0.1" value="1.0">
             </label>
 
+            <label>
+                Node Size: <span id="node-size-value" class="control-value">1.0</span>
+                <input type="range" id="node-size" min="0.1" max="3.0" step="0.1" value="1.0">
+            </label>
+
             <div class="checkbox-label">
                 <input type="checkbox" id="barnes-hut" checked>
                 <span>Barnes-Hut Optimization</span>
@@ -136,14 +141,26 @@
     </div>
 
     <script>
+        // Check what's available
+        console.log('Available globals:', {
+            graphology: typeof graphology,
+            Sigma: typeof Sigma,
+            forceAtlas2: typeof forceAtlas2,
+            graphologyLibrary: typeof graphologyLibrary
+        });
+
         // Graph data will be injected here
-        const graphData = {"nodes": [{"key": "1", "label": "Node 1", "size": 10, "color": "#1f77b4"}, {"key": "2", "label": "Node 2", "size": 15, "color": "#ff7f0e"}, {"key": "3", "label": "Node 3", "size": 12, "color": "#2ca02c"}], "edges": [{"key": "edge_0", "source": "1", "target": "2", "weight": 5}, {"key": "edge_1", "source": "2", "target": "3", "weight": 3}]};
+        const graphData = {"nodes": [{"key": "1", "label": "Node 1", "size": 5, "color": "#1f77b4"}, {"key": "2", "label": "Node 2", "size": 8, "color": "#ff7f0e"}, {"key": "3", "label": "Node 3", "size": 6, "color": "#2ca02c"}], "edges": [{"key": "edge_0", "source": "1", "target": "2", "weight": 5}, {"key": "edge_1", "source": "2", "target": "3", "weight": 3}]};
 
         // Create graph
         const graph = new graphology.DirectedGraph();
 
+        // Store original node sizes
+        const originalNodeSizes = {};
+
         // Add nodes and edges
         graphData.nodes.forEach(node => {
+            originalNodeSizes[node.key] = node.size;
             graph.addNode(node.key, {
                 label: node.label,
                 size: node.size,
@@ -202,12 +219,21 @@
         document.getElementById('start-layout').addEventListener('click', () => {
             if (!layoutRunning) {
                 layoutRunning = true;
+                console.log('Starting layout animation...');
                 layoutInterval = setInterval(() => {
-                    FA2Layout.assign(graph, {
-                        iterations: 2,
-                        settings: sensibleSettings
-                    });
-                    renderer.refresh();
+                    try {
+                        // Try different possible global variable names
+                        const FA2 = window.forceAtlas2 || window.graphologyLibrary?.layoutForceAtlas2 || graphologyLayoutForceAtlas2;
+                        FA2.assign(graph, {
+                            iterations: 2,
+                            settings: sensibleSettings
+                        });
+                        renderer.refresh();
+                    } catch (e) {
+                        console.error('Layout error:', e);
+                        clearInterval(layoutInterval);
+                        layoutRunning = false;
+                    }
                 }, 50);
             }
         });
@@ -256,18 +282,36 @@
             document.getElementById('edge-weight-value').textContent = e.target.value;
         });
 
+        document.getElementById('node-size').addEventListener('input', (e) => {
+            const sizeMultiplier = parseFloat(e.target.value);
+            document.getElementById('node-size-value').textContent = e.target.value;
+
+            // Update all node sizes
+            graph.forEachNode((node) => {
+                const originalSize = originalNodeSizes[node];
+                graph.setNodeAttribute(node, 'size', originalSize * sizeMultiplier);
+            });
+            renderer.refresh();
+        });
+
         document.getElementById('barnes-hut').addEventListener('change', (e) => {
             sensibleSettings.barnesHutOptimize = e.target.checked;
         });
 
         // Initial layout
         console.log('Running initial layout...');
-        FA2Layout.assign(graph, {
-            iterations: 100,
-            settings: sensibleSettings
-        });
-        renderer.refresh();
-        console.log('Initial layout complete');
+        try {
+            const FA2 = window.forceAtlas2 || window.graphologyLibrary?.layoutForceAtlas2 || graphologyLayoutForceAtlas2;
+            console.log('Using FA2 library:', FA2);
+            FA2.assign(graph, {
+                iterations: 100,
+                settings: sensibleSettings
+            });
+            renderer.refresh();
+            console.log('Initial layout complete');
+        } catch (e) {
+            console.error('Failed to run initial layout:', e);
+        }
 
         // Node hover events
         renderer.on('enterNode', ({ node }) => {
