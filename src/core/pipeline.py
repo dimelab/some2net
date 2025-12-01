@@ -96,7 +96,8 @@ class SocialNetworkPipeline:
 
         # Keep NER engine for backward compatibility (will be removed eventually)
         if extraction_method == "ner":
-            self.ner_engine = self.extractor
+            # NERExtractor wraps NEREngine, so we need to access the wrapped engine
+            self.ner_engine = self.extractor.ner_engine
         else:
             self.ner_engine = None
 
@@ -797,7 +798,8 @@ class SocialNetworkPipeline:
         logger.info("Resetting pipeline state")
         self._reset_state()
         self.network_builder.reset()
-        self.ner_engine.clear_cache()
+        if self.ner_engine:
+            self.ner_engine.clear_cache()
 
     def _reset_state(self):
         """Reset internal state."""
