@@ -477,23 +477,23 @@ def main():
         st.subheader("📊 Metadata Columns (Optional)")
         st.caption("Attach additional columns as metadata to nodes and edges")
 
-        # Get available columns (excluding author and text)
-        available_metadata_cols = [col for col in preview_df.columns if col not in [author_col, text_col]]
+        # Get all available columns
+        all_available_cols = list(preview_df.columns)
 
         col1, col2 = st.columns(2)
 
         with col1:
             node_metadata_cols = st.multiselect(
                 "Node Metadata Columns",
-                available_metadata_cols,
-                help="Attach these columns as attributes to author nodes (aggregated per author)"
+                all_available_cols,
+                help="Attach these columns as attributes to author nodes (aggregated per author). You can include the text or author columns here."
             )
 
         with col2:
             edge_metadata_cols = st.multiselect(
                 "Edge Metadata Columns",
-                available_metadata_cols,
-                help="Attach these columns as attributes to edges (per post/mention)"
+                all_available_cols,
+                help="Attach these columns as attributes to edges (per post/mention). You can include the text or author columns here."
             )
 
         # Check for empty text values in preview

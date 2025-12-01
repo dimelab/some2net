@@ -33,7 +33,8 @@ def export_graphml(graph: nx.DiGraph, filepath: str) -> None:
         attrs = graph_copy[u][v]
         for key, value in attrs.items():
             if isinstance(value, list):
-                graph_copy[u][v][key] = ','.join(str(x) for x in value)
+                # Use pipe separator to avoid conflicts with commas in text
+                graph_copy[u][v][key] = ' | '.join(str(x) for x in value)
             elif isinstance(value, dict):
                 graph_copy[u][v][key] = str(value)
     
@@ -70,7 +71,8 @@ def export_gexf(graph: nx.DiGraph, filepath: str) -> None:
         attrs = graph_copy[u][v]
         for key, value in attrs.items():
             if isinstance(value, list):
-                graph_copy[u][v][key] = ','.join(str(x) for x in value)
+                # Use pipe separator to avoid conflicts with commas in text
+                graph_copy[u][v][key] = ' | '.join(str(x) for x in value)
             elif isinstance(value, dict):
                 graph_copy[u][v][key] = str(value)
             elif isinstance(value, (np.integer, np.floating)):

@@ -257,12 +257,24 @@ class NetworkBuilder:
             if timestamp:
                 self.graph[author][entity]['last_mention'] = timestamp
 
-            # Add edge metadata if provided and not already present
+            # Add edge metadata if provided
             if edge_metadata:
                 for key, value in edge_metadata.items():
                     meta_key = f'meta_{key}'
                     if meta_key not in self.graph[author][entity]:
+                        # First occurrence - store as single value
                         self.graph[author][entity][meta_key] = value
+                    else:
+                        # Multiple values - convert to list or append
+                        existing = self.graph[author][entity][meta_key]
+                        if isinstance(existing, list):
+                            # Already a list - append if not duplicate
+                            if value not in existing:
+                                existing.append(value)
+                        else:
+                            # Convert to list if values differ
+                            if existing != value:
+                                self.graph[author][entity][meta_key] = [existing, value]
         else:
             # Create new edge
             edge_attrs = {

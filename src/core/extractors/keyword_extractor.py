@@ -10,6 +10,7 @@ from collections import defaultdict, Counter
 import logging
 from tqdm import tqdm
 import math
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +113,55 @@ class KeywordExtractor(BaseExtractor):
         # Storage for author texts (first pass)
         self.author_texts = defaultdict(list)
 
-        # Additional stopwords for common Danish words (extend as needed)
+        # Extended stopwords for common Danish and English words
+        # These are filtered in addition to NLTK's stopwords
         self.additional_stopwords = {
-            'danish': ['så', 'kan', 'ja', 'tak', 'enig', 'hvorfor', 'lige', 'bare', 'godt', 'rigtig'],
-            'english': ['yes', 'no', 'ok', 'yeah', 'yep', 'nope', 'thanks', 'please']
+            'danish': [
+                # Common words often missed by NLTK
+                'så', 'kan', 'ja', 'tak', 'enig', 'hvorfor', 'lige', 'bare', 'godt', 'rigtig',
+                'ved', 'har', 'var', 'vil', 'blevet', 'været', 'måske', 'altså', 'okay', 'ok',
+                'dog', 'endnu', 'flere', 'fx', 'helt', 'hmm', 'hej', 'hey', 'jo', 'mener',
+                'netop', 'også', 'rent', 'selvfølgelig', 'synes', 'tror', 'ud', 'åh',
+                # Very short common words
+                'af', 'at', 'de', 'den', 'der', 'det', 'du', 'en', 'er', 'et', 'for',
+                'han', 'hun', 'i', 'jeg', 'med', 'men', 'og', 'på', 'til', 'vi',
+                # Numbers and short words
+                'nu', 'ny', 'om', 'op', 'os', 'se', 'si', 'to', 'tre', 'fire', 'fem'
+            ],
+            'english': [
+                'yes', 'no', 'ok', 'okay', 'yeah', 'yep', 'nope', 'thanks', 'please',
+                'just', 'like', 'really', 'very', 'much', 'well', 'actually', 'basically',
+                'literally', 'totally', 'definitely', 'probably', 'maybe', 'perhaps',
+                'hmm', 'umm', 'uh', 'ah', 'oh', 'hey', 'hi', 'hello'
+            ]
         }
 
         logger.info(f"KeywordExtractor initialized: {min_keywords}-{max_keywords} keywords per author using RAKE + {'TF-IDF' if use_tfidf else 'RAKE only'}")
+
+    def _get_stopwords(self) -> set:
+        """
+        Get comprehensive stopwords list for the language.
+
+        Returns:
+            Set of stopwords combining NLTK and custom stopwords
+        """
+        stopwords_set = set()
+
+        # Try to get NLTK stopwords
+        try:
+            from nltk.corpus import stopwords
+            nltk_stopwords = stopwords.words(self.language)
+            stopwords_set.update(nltk_stopwords)
+            logger.debug(f"Loaded {len(nltk_stopwords)} NLTK stopwords for {self.language}")
+        except Exception as e:
+            logger.debug(f"Could not load NLTK stopwords: {e}")
+
+        # Add our custom stopwords
+        custom_stopwords = self.additional_stopwords.get(self.language, [])
+        stopwords_set.update(custom_stopwords)
+
+        logger.debug(f"Total stopwords for {self.language}: {len(stopwords_set)}")
+        return stopwords_set
 
     def _create_rake_instance(self) -> Rake:
         """Create a new RAKE instance with configured parameters."""
@@ -147,16 +190,20 @@ class KeywordExtractor(BaseExtractor):
             }
             metric = metric_map.get(self.ranking_metric, 0)
 
+        # Get comprehensive stopwords list
+        stopwords_list = list(self._get_stopwords())
+
         return Rake(
             language=self.language,
             max_length=self.max_phrase_length,
             min_length=self.min_phrase_length,
-            ranking_metric=metric
+            ranking_metric=metric,
+            stopwords=stopwords_list  # Pass custom stopwords to RAKE
         )
 
     def _filter_keyword(self, keyword: str) -> bool:
         """
-        Filter out unwanted keywords.
+        Filter out unwanted keywords including URLs, mentions, hashtags, etc.
 
         Args:
             keyword: Keyword to check
@@ -168,6 +215,28 @@ class KeywordExtractor(BaseExtractor):
 
         # Filter by character length
         if len(keyword_lower) < self.min_char_length:
+            return False
+
+        # Filter URLs (http://, https://, www., domain.com patterns)
+        url_pattern = r'(https?://|www\.|[a-z0-9-]+\.(com|org|net|edu|gov|io|co|dk|de|uk|fr|es|it|nl|se|no))'
+        if re.search(url_pattern, keyword_lower):
+            return False
+
+        # Filter social media artifacts
+        # Hashtags
+        if keyword_lower.startswith('#'):
+            return False
+        # Mentions
+        if keyword_lower.startswith('@'):
+            return False
+        # Email addresses
+        if '@' in keyword_lower and '.' in keyword_lower:
+            return False
+
+        # Filter keywords that are mostly numbers or special characters
+        # Allow some special chars for languages like Danish (å, æ, ø)
+        alphanumeric_ratio = sum(c.isalnum() for c in keyword_lower) / len(keyword_lower) if keyword_lower else 0
+        if alphanumeric_ratio < 0.7:  # At least 70% should be letters/numbers
             return False
 
         # Filter additional common words if enabled

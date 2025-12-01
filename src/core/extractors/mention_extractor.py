@@ -65,13 +65,7 @@ class MentionExtractor(BaseExtractor):
         seen = set()  # Track unique mentions in this text
 
         for mention in mentions:
-            # Construct full mention text
-            if self.normalize_case:
-                mention_text = f"@{mention.lower()}"
-            else:
-                mention_text = f"@{mention}"
-
-            # Check if this looks like an email address
+            # Check if this looks like an email address (before processing)
             if self.exclude_emails:
                 # Look for the mention in the original text with context
                 # to check for email patterns
@@ -79,6 +73,13 @@ class MentionExtractor(BaseExtractor):
                 matches = re.findall(context_pattern, text, re.UNICODE)
                 if matches and any(self._is_likely_email(m) for m in matches):
                     continue
+
+            # Remove @ symbol and normalize
+            # This allows matching between authors and mentioned users
+            if self.normalize_case:
+                mention_text = mention.lower()
+            else:
+                mention_text = mention
 
             # Avoid duplicates within the same text
             if mention_text not in seen:
