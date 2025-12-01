@@ -703,19 +703,50 @@ def display_results(graph, stats, layout_iterations, enable_entity_linking=False
     # Network Visualization
     st.header("5️⃣ Network Visualization")
 
+    # Filter options
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.write("Choose which part of the network to visualize:")
+    with col2:
+        show_giant_component = st.checkbox(
+            "🔍 Giant Component Only",
+            value=False,
+            help="Show only the largest connected component of the network"
+        )
+
     try:
         with st.spinner("🎨 Preparing interactive Force Atlas 2 visualization..."):
             viz = NetworkVisualizer()
 
-            # Limit visualization for very large networks
+            # Start with full graph
             display_graph = graph
-            if graph.number_of_nodes() > 1000:
-                st.warning(f"⚠️ Network has {graph.number_of_nodes():,} nodes. Showing top 500 most connected nodes for performance.")
+
+            # Filter to giant component if requested
+            if show_giant_component:
+                # Get weakly connected components (for directed graphs)
+                if graph.is_directed():
+                    components = list(nx.weakly_connected_components(graph))
+                else:
+                    components = list(nx.connected_components(graph))
+
+                if components:
+                    # Get the largest component
+                    giant_component = max(components, key=len)
+                    display_graph = graph.subgraph(giant_component).copy()
+
+                    st.info(f"🔍 Showing giant component: {len(giant_component):,} nodes "
+                           f"({len(giant_component)/graph.number_of_nodes()*100:.1f}% of total network)")
+                else:
+                    st.warning("No connected components found")
+
+            # Limit visualization for very large networks
+            if display_graph.number_of_nodes() > 1000:
+                st.warning(f"⚠️ Network has {display_graph.number_of_nodes():,} nodes. Showing top 500 most connected nodes for performance.")
                 # Get top nodes by degree
-                degree_dict = dict(graph.degree())
+                degree_dict = dict(display_graph.degree())
                 top_nodes = sorted(degree_dict.items(), key=lambda x: x[1], reverse=True)[:500]
                 top_node_ids = [n[0] for n in top_nodes]
-                display_graph = graph.subgraph(top_node_ids).copy()
+                display_graph = display_graph.subgraph(top_node_ids).copy()
 
             # Export graph data for Sigma.js
             graph_data = viz.export_for_sigma(display_graph)
@@ -743,6 +774,7 @@ def display_results(graph, stats, layout_iterations, enable_entity_linking=False
             - 🔍 Zoom with scroll wheel
             - 🖐️ Pan by clicking and dragging
             - ▶️ Use controls on the right to adjust the layout in real-time
+            - 🔍 Toggle "Giant Component Only" above to focus on the main connected network
             - 🎨 Node colors: Blue=Authors, Orange=Persons, Green=Locations, Red=Organizations
             - 💡 The layout is computed in your browser using Force Atlas 2
             """)
