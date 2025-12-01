@@ -6,9 +6,10 @@ Requires two-pass processing: first collect texts per author, then extract keywo
 """
 
 from typing import List, Dict, Optional
-from collections import defaultdict
+from collections import defaultdict, Counter
 import logging
 from tqdm import tqdm
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +71,13 @@ class KeywordExtractor(BaseExtractor):
         language: str = 'english',
         max_phrase_length: int = 3,
         min_phrase_length: int = 1,
-        ranking_metric: str = 'degree_to_frequency_ratio'
+        ranking_metric: str = 'degree_to_frequency_ratio',
+        min_char_length: int = 3,
+        use_tfidf: bool = True,
+        filter_common_words: bool = True
     ):
         """
-        Initialize keyword extractor using RAKE.
+        Initialize keyword extractor using RAKE with optional TF-IDF weighting.
 
         Args:
             min_keywords: Minimum number of keywords to extract per author
@@ -85,6 +89,9 @@ class KeywordExtractor(BaseExtractor):
                 - 'degree_to_frequency_ratio' (default, best for most cases)
                 - 'word_degree' (favors longer phrases)
                 - 'word_frequency' (favors frequent words)
+            min_char_length: Minimum character length for keywords (default: 3)
+            use_tfidf: Whether to use TF-IDF weighting to boost distinctive keywords (default: True)
+            filter_common_words: Whether to filter very common single-word keywords (default: True)
         """
         if Rake is None:
             raise ImportError(
@@ -98,11 +105,20 @@ class KeywordExtractor(BaseExtractor):
         self.max_phrase_length = max_phrase_length
         self.min_phrase_length = min_phrase_length
         self.ranking_metric = ranking_metric
+        self.min_char_length = min_char_length
+        self.use_tfidf = use_tfidf
+        self.filter_common_words = filter_common_words
 
         # Storage for author texts (first pass)
         self.author_texts = defaultdict(list)
 
-        logger.info(f"KeywordExtractor initialized: {min_keywords}-{max_keywords} keywords per author using RAKE")
+        # Additional stopwords for common Danish words (extend as needed)
+        self.additional_stopwords = {
+            'danish': ['så', 'kan', 'ja', 'tak', 'enig', 'hvorfor', 'lige', 'bare', 'godt', 'rigtig'],
+            'english': ['yes', 'no', 'ok', 'yeah', 'yep', 'nope', 'thanks', 'please']
+        }
+
+        logger.info(f"KeywordExtractor initialized: {min_keywords}-{max_keywords} keywords per author using RAKE + {'TF-IDF' if use_tfidf else 'RAKE only'}")
 
     def _create_rake_instance(self) -> Rake:
         """Create a new RAKE instance with configured parameters."""
@@ -137,6 +153,66 @@ class KeywordExtractor(BaseExtractor):
             min_length=self.min_phrase_length,
             ranking_metric=metric
         )
+
+    def _filter_keyword(self, keyword: str) -> bool:
+        """
+        Filter out unwanted keywords.
+
+        Args:
+            keyword: Keyword to check
+
+        Returns:
+            True if keyword should be kept, False if it should be filtered out
+        """
+        keyword_lower = keyword.lower().strip()
+
+        # Filter by character length
+        if len(keyword_lower) < self.min_char_length:
+            return False
+
+        # Filter additional common words if enabled
+        if self.filter_common_words:
+            # Check against additional stopwords for this language
+            lang_stopwords = self.additional_stopwords.get(self.language, [])
+            if keyword_lower in lang_stopwords:
+                return False
+
+            # Filter very short single words (likely common words)
+            words = keyword_lower.split()
+            if len(words) == 1 and len(keyword_lower) <= 2:
+                return False
+
+        return True
+
+    def _calculate_tfidf_scores(self, all_keywords: Dict[str, List[str]]) -> Dict[str, float]:
+        """
+        Calculate TF-IDF scores for keywords across all authors.
+
+        Args:
+            all_keywords: Dict mapping author to list of keywords
+
+        Returns:
+            Dict mapping keyword to TF-IDF score
+        """
+        # Count document frequency (how many authors use each keyword)
+        df = Counter()
+        all_docs = []
+
+        for author, keywords in all_keywords.items():
+            unique_keywords = set(k.lower() for k in keywords)
+            all_docs.append(unique_keywords)
+            for keyword in unique_keywords:
+                df[keyword] += 1
+
+        num_docs = len(all_docs)
+
+        # Calculate IDF scores
+        idf_scores = {}
+        for keyword, doc_freq in df.items():
+            # IDF = log(N / df) where N is total documents, df is document frequency
+            idf_scores[keyword] = math.log(num_docs / doc_freq) if doc_freq > 0 else 0
+
+        return idf_scores
 
     def extract_from_text(self, text: str, **kwargs) -> List[Dict]:
         """
@@ -271,31 +347,42 @@ class KeywordExtractor(BaseExtractor):
                 logger.warning(f"No keywords extracted for {author}")
                 return []
 
+            # Filter out unwanted keywords
+            filtered_phrases = [
+                (score, phrase) for score, phrase in ranked_phrases
+                if self._filter_keyword(phrase)
+            ]
+
+            if not filtered_phrases:
+                logger.warning(f"No keywords remaining after filtering for {author}")
+                return []
+
             # Sort by score (descending)
-            ranked_phrases.sort(key=lambda x: x[0], reverse=True)
+            filtered_phrases.sort(key=lambda x: x[0], reverse=True)
 
             # Determine how many keywords to extract
-            # At least min_keywords, at most max_keywords
-            num_keywords = max(
-                self.min_keywords,
-                min(len(ranked_phrases), self.max_keywords)
+            # At least min_keywords (if available), at most max_keywords
+            num_keywords = min(
+                max(self.min_keywords, len(filtered_phrases)),
+                self.max_keywords
             )
 
             # Normalize scores to 0-1 range
-            max_score = ranked_phrases[0][0] if ranked_phrases else 1.0
-            min_score = ranked_phrases[-1][0] if ranked_phrases else 0.0
+            max_score = filtered_phrases[0][0] if filtered_phrases else 1.0
+            min_score = filtered_phrases[-1][0] if filtered_phrases else 0.0
             score_range = max_score - min_score if max_score > min_score else 1.0
 
-            # Return top keywords
+            # Return top keywords (without TF-IDF at this stage)
             results = []
-            for score, phrase in ranked_phrases[:num_keywords]:
+            for score, phrase in filtered_phrases[:num_keywords]:
                 # Normalize score to 0-1 range
                 normalized_score = (score - min_score) / score_range if score_range > 0 else 0.5
 
                 results.append({
                     'text': phrase,
                     'type': 'KEYWORD',
-                    'score': float(normalized_score)
+                    'score': float(normalized_score),
+                    'raw_score': float(score)  # Keep raw score for TF-IDF weighting
                 })
 
             logger.debug(f"Extracted {len(results)} keywords for {author}")
@@ -307,7 +394,7 @@ class KeywordExtractor(BaseExtractor):
 
     def extract_all_authors(self, show_progress: bool = True) -> Dict[str, List[Dict]]:
         """
-        Extract keywords for all collected authors.
+        Extract keywords for all collected authors with optional TF-IDF weighting.
 
         Args:
             show_progress: Whether to show a progress bar
@@ -322,11 +409,48 @@ class KeywordExtractor(BaseExtractor):
         if show_progress:
             authors = tqdm(authors, desc="Extracting keywords")
 
+        # First pass: Extract keywords for each author
         for author in authors:
             results[author] = self.extract_per_author(author, use_collected=True)
 
+        # Second pass: Apply TF-IDF weighting if enabled
+        if self.use_tfidf and len(results) > 1:
+            # Collect all keywords for TF-IDF calculation
+            all_keywords = {
+                author: [kw['text'] for kw in keywords]
+                for author, keywords in results.items()
+            }
+
+            # Calculate IDF scores
+            idf_scores = self._calculate_tfidf_scores(all_keywords)
+
+            # Re-rank keywords using TF-IDF
+            for author, keywords in results.items():
+                if not keywords:
+                    continue
+
+                # Calculate TF-IDF scores
+                for kw in keywords:
+                    keyword_lower = kw['text'].lower()
+                    idf = idf_scores.get(keyword_lower, 0)
+                    # TF = normalized RAKE score, IDF from calculation
+                    tfidf = kw['score'] * (1 + idf)  # Add 1 to avoid zero scores
+                    kw['tfidf_score'] = float(tfidf)
+
+                # Re-sort by TF-IDF score
+                keywords.sort(key=lambda x: x.get('tfidf_score', x['score']), reverse=True)
+
+                # Update final scores to TF-IDF scores
+                for kw in keywords:
+                    kw['score'] = kw.get('tfidf_score', kw['score'])
+                    # Clean up temporary scores
+                    kw.pop('tfidf_score', None)
+                    kw.pop('raw_score', None)
+
+                results[author] = keywords
+
         total_keywords = sum(len(keywords) for keywords in results.values())
-        logger.info(f"Extracted keywords for {len(results)} authors (total: {total_keywords} keywords)")
+        logger.info(f"Extracted keywords for {len(results)} authors (total: {total_keywords} keywords, TF-IDF: {self.use_tfidf})")
 
         return results
 
@@ -348,13 +472,16 @@ class KeywordExtractor(BaseExtractor):
         """
         return {
             'type': 'keyword',
-            'algorithm': 'RAKE',
+            'algorithm': 'RAKE + TF-IDF' if self.use_tfidf else 'RAKE',
             'min_keywords': self.min_keywords,
             'max_keywords': self.max_keywords,
             'language': self.language,
             'max_phrase_length': self.max_phrase_length,
             'min_phrase_length': self.min_phrase_length,
-            'ranking_metric': self.ranking_metric
+            'min_char_length': self.min_char_length,
+            'ranking_metric': self.ranking_metric,
+            'use_tfidf': self.use_tfidf,
+            'filter_common_words': self.filter_common_words
         }
 
     def get_author_count(self) -> int:

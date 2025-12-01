@@ -893,25 +893,7 @@ def display_results(graph, stats, layout_iterations, enable_entity_linking=False
             # Start with full graph
             display_graph = graph
 
-            # Filter to giant component if requested
-            if show_giant_component:
-                # Get weakly connected components (for directed graphs)
-                if graph.is_directed():
-                    connected_components = list(nx.weakly_connected_components(graph))
-                else:
-                    connected_components = list(nx.connected_components(graph))
-
-                if connected_components:
-                    # Get the largest component
-                    giant_component = max(connected_components, key=len)
-                    display_graph = graph.subgraph(giant_component).copy()
-
-                    st.info(f"🔍 Showing giant component: {len(giant_component):,} nodes "
-                           f"({len(giant_component)/graph.number_of_nodes()*100:.1f}% of total network)")
-                else:
-                    st.warning("No connected components found")
-
-            # Limit visualization for very large networks
+            # Limit visualization for very large networks (BEFORE giant component filter)
             if display_graph.number_of_nodes() > 1000:
                 st.warning(f"⚠️ Network has {display_graph.number_of_nodes():,} nodes. Showing top 500 most connected nodes for performance.")
                 # Get top nodes by degree
@@ -919,6 +901,24 @@ def display_results(graph, stats, layout_iterations, enable_entity_linking=False
                 top_nodes = sorted(degree_dict.items(), key=lambda x: x[1], reverse=True)[:500]
                 top_node_ids = [n[0] for n in top_nodes]
                 display_graph = display_graph.subgraph(top_node_ids).copy()
+
+            # Filter to giant component if requested (AFTER size filtering)
+            if show_giant_component:
+                # Get weakly connected components (for directed graphs)
+                if display_graph.is_directed():
+                    connected_components = list(nx.weakly_connected_components(display_graph))
+                else:
+                    connected_components = list(nx.connected_components(display_graph))
+
+                if connected_components:
+                    # Get the largest component
+                    giant_component = max(connected_components, key=len)
+                    display_graph = display_graph.subgraph(giant_component).copy()
+
+                    st.info(f"🔍 Showing giant component: {len(giant_component):,} nodes "
+                           f"({len(giant_component)/display_graph.number_of_nodes()*100:.1f}% of filtered network)")
+                else:
+                    st.warning("No connected components found")
 
             # Export graph data for Sigma.js
             graph_data = viz.export_for_sigma(display_graph)
