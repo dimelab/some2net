@@ -20,6 +20,7 @@ import sys
 import time
 from collections import Counter
 import json
+import networkx as nx
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))

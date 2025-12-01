@@ -86,17 +86,30 @@ class KeywordExtractor(BaseExtractor):
 
     def _create_rake_instance(self) -> Rake:
         """Create a new RAKE instance with configured parameters."""
-        # Map ranking metric string to RAKE constant
-        metric_map = {
-            'degree_to_frequency_ratio': Rake.DEGREE_TO_FREQUENCY_RATIO,
-            'word_degree': Rake.WORD_DEGREE,
-            'word_frequency': Rake.WORD_FREQUENCY
-        }
+        # In newer versions of rake-nltk, ranking_metric can be passed as int:
+        # 0 = DEGREE_TO_FREQUENCY_RATIO (default)
+        # 1 = WORD_DEGREE
+        # 2 = WORD_FREQUENCY
 
-        metric = metric_map.get(
-            self.ranking_metric,
-            Rake.DEGREE_TO_FREQUENCY_RATIO
-        )
+        # Try to use class constants if they exist, otherwise use integer values
+        try:
+            metric_map = {
+                'degree_to_frequency_ratio': Rake.DEGREE_TO_FREQUENCY_RATIO,
+                'word_degree': Rake.WORD_DEGREE,
+                'word_frequency': Rake.WORD_FREQUENCY
+            }
+            metric = metric_map.get(
+                self.ranking_metric,
+                Rake.DEGREE_TO_FREQUENCY_RATIO
+            )
+        except AttributeError:
+            # Fallback to integer values for older/newer versions
+            metric_map = {
+                'degree_to_frequency_ratio': 0,
+                'word_degree': 1,
+                'word_frequency': 2
+            }
+            metric = metric_map.get(self.ranking_metric, 0)
 
         return Rake(
             language=self.language,
