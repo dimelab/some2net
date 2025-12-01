@@ -92,8 +92,16 @@ def export_json(graph: nx.DiGraph, filepath: str) -> None:
     # Ensure directory exists
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
 
-    # Convert to node-link format with explicit edges parameter (NetworkX 3.6+ compatibility)
-    data = nx.node_link_data(graph, edges="links")
+    # Convert to node-link format
+    # Try new parameter name first, fall back to default if not supported
+    try:
+        data = nx.node_link_data(graph, edges="links")
+    except TypeError:
+        # Older NetworkX versions don't support edges parameter
+        data = nx.node_link_data(graph)
+        # Rename 'edges' key to 'links' if it exists
+        if 'edges' in data:
+            data['links'] = data.pop('edges')
 
     # Convert numpy types to native Python types for JSON serialization
     def convert_numpy_types(obj):

@@ -65,7 +65,9 @@ class NetworkBuilder:
         author: str,
         entities: List[Dict],
         post_id: Optional[str] = None,
-        timestamp: Optional[str] = None
+        timestamp: Optional[str] = None,
+        node_metadata: Optional[Dict] = None,
+        edge_metadata: Optional[Dict] = None
     ):
         """
         Add a post to the network.
@@ -76,6 +78,8 @@ class NetworkBuilder:
                      Each should have: {'text': str, 'type': str, 'score': float}
             post_id: Optional post identifier
             timestamp: Optional timestamp string
+            node_metadata: Optional metadata to attach to author node
+            edge_metadata: Optional metadata to attach to edges
         """
         self.stats['posts_processed'] += 1
 
@@ -90,13 +94,29 @@ class NetworkBuilder:
 
         # Add author node if not exists
         if not self.graph.has_node(author):
-            self.graph.add_node(
-                author,
-                node_type='author',
-                label=author,
-                mention_count=0,
-                post_count=0
-            )
+            node_attrs = {
+                'node_type': 'author',
+                'label': author,
+                'mention_count': 0,
+                'post_count': 0
+            }
+
+            # Add node metadata if provided
+            if node_metadata:
+                # Prefix metadata keys to avoid conflicts
+                for key, value in node_metadata.items():
+                    if key not in node_attrs:  # Don't override core attributes
+                        node_attrs[f'meta_{key}'] = value
+
+            self.graph.add_node(author, **node_attrs)
+        else:
+            # Update existing node with metadata if provided
+            if node_metadata:
+                for key, value in node_metadata.items():
+                    meta_key = f'meta_{key}'
+                    # Only add if not already present (first occurrence wins)
+                    if meta_key not in self.graph.nodes[author]:
+                        self.graph.nodes[author][meta_key] = value
 
         # Ensure post_count attribute exists (for backwards compatibility)
         if 'post_count' not in self.graph.nodes[author]:
@@ -162,7 +182,8 @@ class NetworkBuilder:
                     entity_score,
                     post_id,
                     timestamp,
-                    entity_metadata
+                    entity_metadata,
+                    edge_metadata
                 )
                 self.stats['entities_added'] += 1
 
@@ -174,9 +195,10 @@ class NetworkBuilder:
         score: float,
         post_id: Optional[str],
         timestamp: Optional[str],
-        entity_metadata: Optional[Dict] = None
+        entity_metadata: Optional[Dict] = None,
+        edge_metadata: Optional[Dict] = None
     ):
-        """Add or update edge from author to entity."""
+        """Add or update edge from author to entity with optional metadata."""
 
         # Map entity type to node type
         node_type_map = {
@@ -234,6 +256,13 @@ class NetworkBuilder:
             # Update last_mention timestamp
             if timestamp:
                 self.graph[author][entity]['last_mention'] = timestamp
+
+            # Add edge metadata if provided and not already present
+            if edge_metadata:
+                for key, value in edge_metadata.items():
+                    meta_key = f'meta_{key}'
+                    if meta_key not in self.graph[author][entity]:
+                        self.graph[author][entity][meta_key] = value
         else:
             # Create new edge
             edge_attrs = {
@@ -248,6 +277,12 @@ class NetworkBuilder:
             if timestamp:
                 edge_attrs['first_mention'] = timestamp
                 edge_attrs['last_mention'] = timestamp
+
+            # Add edge metadata if provided
+            if edge_metadata:
+                for key, value in edge_metadata.items():
+                    if key not in edge_attrs:  # Don't override core attributes
+                        edge_attrs[f'meta_{key}'] = value
 
             self.graph.add_edge(author, entity, **edge_attrs)
             self.stats['edges_created'] += 1

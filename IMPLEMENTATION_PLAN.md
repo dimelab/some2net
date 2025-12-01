@@ -1,640 +1,831 @@
-# Social Network Analytics - Implementation Plan
+# Implementation Plan: Multi-Method Extraction & Metadata Features
 
-## Overview
-This document provides a step-by-step implementation plan for building the social media network analytics library as specified in `.clinerules`.
-
-## Timeline Estimate
-- **Phase 1** (Core): 2-3 weeks
-- **Phase 2** (UI): 1 week  
-- **Phase 3** (Polish): 1 week
-- **Total**: 4-5 weeks for full prototype
+**Date**: 2025-12-01
+**Author**: Claude Code
+**Project**: some2net - Social Network Analytics Library
 
 ---
 
-## Phase 1: Core Functionality (Weeks 1-3)
+## Table of Contents
 
-### Step 1.1: Project Setup (Day 1)
-**Objective**: Initialize project structure and dependencies
+1. [Overview](#overview)
+2. [Current Architecture](#current-architecture)
+3. [Proposed Changes](#proposed-changes)
+4. [New Features](#new-features)
+5. [Architecture Design](#architecture-design)
+6. [Implementation Details](#implementation-details)
+7. [File Structure](#file-structure)
+8. [Implementation Phases](#implementation-phases)
+9. [Testing Strategy](#testing-strategy)
+10. [Considerations & Edge Cases](#considerations--edge-cases)
 
-**Tasks**:
-1. Create directory structure as specified in `.clinerules`
-2. Initialize git repository
-3. Create `setup.py` with package metadata
-4. Create `requirements.txt` with core dependencies
-5. Create basic `README.md`
-6. Set up virtual environment
+---
 
-**Code Template - setup.py**:
+## Overview
+
+### Goals
+
+Add support for multiple extraction methods beyond NER, allowing users to build networks based on:
+- **Hashtag extraction**: Links authors with hashtags they use
+- **Mention extraction**: Links authors with users they mention (@username)
+- **Domain extraction**: Links authors with domains from URLs they share
+- **Keyword extraction**: Links authors with TF-IDF weighted keywords (5-20 per author)
+- **Exact match**: Links authors with exact text values (no extraction)
+
+Additionally, add the ability to attach metadata from CSV/NDJSON columns to both nodes and edges.
+
+### Success Criteria
+
+- [ ] User can select extraction method in UI
+- [ ] All extraction methods follow a consistent interface
+- [ ] Metadata columns can be selected and attached to nodes/edges
+- [ ] Existing NER functionality remains unchanged
+- [ ] All extractors have comprehensive tests
+- [ ] Documentation updated with examples
+
+---
+
+## Current Architecture
+
+### Data Flow
+
+```
+Input File (CSV/NDJSON)
+    ↓
+DataLoader (chunked reading)
+    ↓
+NEREngine (entity extraction)
+    ↓
+EntityResolver (deduplication)
+    ↓
+EntityLinker (optional Wikipedia linking)
+    ↓
+NetworkBuilder (graph construction)
+    ↓
+Export (GEXF, GraphML, JSON, etc.)
+```
+
+### Key Components
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| `DataLoader` | Load CSV/NDJSON files | `src/core/data_loader.py` |
+| `NEREngine` | Named entity extraction | `src/core/ner_engine.py` |
+| `EntityResolver` | Entity deduplication | `src/core/entity_resolver.py` |
+| `EntityLinker` | Wikipedia/Wikidata linking | `src/core/entity_linker.py` |
+| `NetworkBuilder` | Graph construction | `src/core/network_builder.py` |
+| `SocialNetworkPipeline` | Orchestration | `src/core/pipeline.py` |
+| Streamlit App | User interface | `src/cli/app.py` |
+
+### Current Limitations
+
+1. **Single extraction method**: Only NER is supported
+2. **No metadata support**: Cannot attach additional column data to nodes/edges
+3. **Tightly coupled**: NER logic is hardcoded in pipeline
+
+---
+
+## Proposed Changes
+
+### 1. Extraction Method Abstraction
+
+Create a **base extractor class** that all extraction methods implement. This allows the pipeline to work with any extractor uniformly.
+
+**Benefits**:
+- Consistent interface across all extraction methods
+- Easy to add new extraction methods in the future
+- Existing NER can be wrapped without modification
+- Testable in isolation
+
+### 2. Metadata Column Support
+
+Extend `NetworkBuilder` and `Pipeline` to accept metadata from input columns and attach it to nodes and edges.
+
+**Benefits**:
+- Rich network analysis with contextual data
+- Support for temporal analysis (timestamps)
+- User identifiers, post IDs, sentiment scores, etc.
+
+---
+
+## New Features
+
+### Feature 1: Hashtag Extraction
+
+**Description**: Extract hashtags (e.g., `#python`, `#machinelearning`) from text and create edges from authors to hashtags.
+
+**Example Network**:
+```
+@alice → #python (weight: 5)
+@alice → #datascience (weight: 3)
+@bob → #python (weight: 2)
+```
+
+**Configuration Options**:
+- Case normalization (keep `#Python` vs normalize to `#python`)
+- Minimum frequency filter
+
+### Feature 2: Mention Extraction
+
+**Description**: Extract user mentions (e.g., `@username`) from text and create edges from authors to mentioned users.
+
+**Example Network**:
+```
+@alice → @bob (weight: 3)
+@alice → @charlie (weight: 1)
+@bob → @alice (weight: 2)
+```
+
+**Configuration Options**:
+- Platform-specific patterns (Twitter, TikTok, etc.)
+- Self-mention handling
+
+### Feature 3: Domain Extraction
+
+**Description**: Extract domains from URLs in text and create edges from authors to domains.
+
+**Example Network**:
+```
+@alice → nytimes.com (weight: 5)
+@alice → bbc.com (weight: 2)
+@bob → nytimes.com (weight: 3)
+```
+
+**Configuration Options**:
+- Subdomain handling (keep `www.` vs strip)
+- URL shortener expansion (future)
+
+### Feature 4: Keyword Extraction (TF-IDF)
+
+**Description**: Extract 5-20 keywords per author using TF-IDF on unigrams and bigrams from all their posts.
+
+**Example Network**:
+```
+@alice → "machine learning" (weight: 0.85)
+@alice → "neural networks" (weight: 0.72)
+@alice → "python" (weight: 0.65)
+```
+
+**Configuration Options**:
+- Min/max keywords per author (5-20 default)
+- Stop words language
+- N-gram range (1-2 default)
+
+**Special Considerations**:
+- Requires all texts per author before extraction
+- Two-pass processing needed
+- Higher memory usage than other methods
+
+### Feature 5: Exact Match
+
+**Description**: Use the raw text value as-is without any extraction. Creates edge from author to the exact text content.
+
+**Example Network**:
+```
+@alice → "I love programming!" (weight: 1)
+@alice → "Python is great" (weight: 1)
+```
+
+**Use Cases**:
+- Sentiment categories (if pre-classified)
+- Topic labels
+- Any categorical data
+
+---
+
+## Architecture Design
+
+### Extractor Base Class
+
+**Location**: `src/core/extractors/base_extractor.py`
+
 ```python
-from setuptools import setup, find_packages
+from abc import ABC, abstractmethod
+from typing import List, Dict, Optional
 
-setup(
-    name='social-network-analytics',
-    version='0.1.0',
-    description='Social media network analytics with NER',
-    author='Your Name',
-    python_requires='>=3.9',
-    packages=find_packages(where='src'),
-    package_dir={'': 'src'},
-    install_requires=[
-        'torch>=2.0.0',
-        'transformers>=4.30.0',
-        'pandas>=2.0.0',
-        'networkx>=3.0',
-        'streamlit>=1.25.0',
-        'langdetect>=1.0.9',
-        'numpy>=1.24.0',
-        'tqdm>=4.65.0',
-        'pyyaml>=6.0',
-        'python-levenshtein>=0.21.0',
-    ],
-    entry_points={
-        'console_scripts': [
-            'sna-web=cli.app:main',
-        ],
-    },
-    classifiers=[
-        'Development Status :: 3 - Alpha',
-        'Intended Audience :: Science/Research',
-        'Topic :: Text Processing :: Linguistic',
-        'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 3.9',
-    ],
+class BaseExtractor(ABC):
+    """Abstract base class for all extraction methods."""
+
+    @abstractmethod
+    def extract_from_text(self, text: str, **kwargs) -> List[Dict]:
+        """
+        Extract items from a single text.
+
+        Args:
+            text: Input text to extract from
+            **kwargs: Extractor-specific parameters
+
+        Returns:
+            List[Dict]: Each dict contains:
+                - 'text': extracted item text (str)
+                - 'type': item type/category (str)
+                - 'score': confidence/relevance score (float, 0-1)
+
+        Example:
+            [
+                {'text': '#python', 'type': 'HASHTAG', 'score': 1.0},
+                {'text': '#datascience', 'type': 'HASHTAG', 'score': 1.0}
+            ]
+        """
+        pass
+
+    @abstractmethod
+    def extract_batch(
+        self,
+        texts: List[str],
+        batch_size: int = 32,
+        show_progress: bool = True,
+        **kwargs
+    ) -> List[List[Dict]]:
+        """
+        Extract items from a batch of texts.
+
+        Args:
+            texts: List of input texts
+            batch_size: Processing batch size
+            show_progress: Show progress bar
+            **kwargs: Extractor-specific parameters
+
+        Returns:
+            List[List[Dict]]: List of extraction results, one per input text
+        """
+        pass
+
+    @abstractmethod
+    def get_extractor_type(self) -> str:
+        """
+        Return extractor type identifier.
+
+        Returns:
+            str: One of: 'ner', 'hashtag', 'mention', 'domain', 'keyword', 'exact'
+        """
+        pass
+
+    def get_config(self) -> Dict:
+        """
+        Return extractor configuration (optional, for serialization).
+
+        Returns:
+            Dict: Configuration parameters
+        """
+        return {}
+```
+
+### Extractor Implementations
+
+#### 1. NER Extractor (Wrapper)
+
+**Location**: `src/core/extractors/ner_extractor.py`
+
+Wraps the existing `NEREngine` to conform to `BaseExtractor` interface.
+
+#### 2. Hashtag Extractor
+
+**Location**: `src/core/extractors/hashtag_extractor.py`
+
+```python
+import re
+from typing import List, Dict
+from .base_extractor import BaseExtractor
+
+class HashtagExtractor(BaseExtractor):
+    """Extract hashtags from text."""
+
+    def __init__(self, normalize_case: bool = True):
+        self.normalize_case = normalize_case
+
+    def extract_from_text(self, text: str, **kwargs) -> List[Dict]:
+        if not text:
+            return []
+
+        # Pattern: # followed by word characters (Unicode-aware)
+        pattern = r'#(\w+)'
+        hashtags = re.findall(pattern, text, re.UNICODE)
+
+        results = []
+        for tag in hashtags:
+            if self.normalize_case:
+                tag_text = f"#{tag.lower()}"
+            else:
+                tag_text = f"#{tag}"
+
+            results.append({
+                'text': tag_text,
+                'type': 'HASHTAG',
+                'score': 1.0
+            })
+
+        return results
+
+    def extract_batch(self, texts: List[str], **kwargs) -> List[List[Dict]]:
+        return [self.extract_from_text(text) for text in texts]
+
+    def get_extractor_type(self) -> str:
+        return 'hashtag'
+```
+
+#### 3. Mention Extractor
+
+**Location**: `src/core/extractors/mention_extractor.py`
+
+Similar to hashtag extractor, but matches `@username` pattern.
+
+#### 4. Domain Extractor
+
+**Location**: `src/core/extractors/domain_extractor.py`
+
+```python
+import re
+from typing import List, Dict
+from urllib.parse import urlparse
+from .base_extractor import BaseExtractor
+
+class DomainExtractor(BaseExtractor):
+    """Extract domains from URLs in text."""
+
+    def __init__(self, strip_www: bool = True):
+        self.strip_www = strip_www
+
+    def extract_from_text(self, text: str, **kwargs) -> List[Dict]:
+        if not text:
+            return []
+
+        url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+        urls = re.findall(url_pattern, text)
+
+        results = []
+        seen_domains = set()
+
+        for url in urls:
+            try:
+                parsed = urlparse(url)
+                domain = parsed.netloc
+
+                if not domain:
+                    continue
+
+                if self.strip_www and domain.startswith('www.'):
+                    domain = domain[4:]
+
+                if domain not in seen_domains:
+                    results.append({
+                        'text': domain,
+                        'type': 'DOMAIN',
+                        'score': 1.0
+                    })
+                    seen_domains.add(domain)
+            except:
+                continue
+
+        return results
+
+    def extract_batch(self, texts: List[str], **kwargs) -> List[List[Dict]]:
+        return [self.extract_from_text(text) for text in texts]
+
+    def get_extractor_type(self) -> str:
+        return 'domain'
+```
+
+#### 5. Keyword Extractor (TF-IDF)
+
+**Location**: `src/core/extractors/keyword_extractor.py`
+
+```python
+from typing import List, Dict
+from collections import defaultdict
+from sklearn.feature_extraction.text import TfidfVectorizer
+from .base_extractor import BaseExtractor
+
+class KeywordExtractor(BaseExtractor):
+    """Extract keywords using TF-IDF on unigrams and bigrams."""
+
+    def __init__(
+        self,
+        min_keywords: int = 5,
+        max_keywords: int = 20,
+        stop_words: str = 'english',
+        ngram_range: tuple = (1, 2)
+    ):
+        self.min_keywords = min_keywords
+        self.max_keywords = max_keywords
+        self.stop_words = stop_words if stop_words != 'none' else None
+        self.ngram_range = ngram_range
+        self.author_texts = defaultdict(list)
+
+    def collect_texts(self, author: str, texts: List[str]):
+        """Collect texts for an author (first pass)."""
+        self.author_texts[author].extend(texts)
+
+    def extract_per_author(self, author: str) -> List[Dict]:
+        """Extract keywords for a specific author."""
+        texts = self.author_texts.get(author, [])
+
+        if not texts:
+            return []
+
+        # Filter empty texts
+        texts = [t for t in texts if t and t.strip()]
+        if not texts:
+            return []
+
+        combined_text = ' '.join(texts)
+
+        try:
+            vectorizer = TfidfVectorizer(
+                ngram_range=self.ngram_range,
+                max_features=self.max_keywords * 2,
+                stop_words=self.stop_words,
+                min_df=1,
+                lowercase=True,
+                max_df=0.95
+            )
+
+            tfidf_matrix = vectorizer.fit_transform([combined_text])
+            feature_names = vectorizer.get_feature_names_out()
+            scores = tfidf_matrix.toarray()[0]
+
+            keyword_scores = sorted(
+                zip(feature_names, scores),
+                key=lambda x: x[1],
+                reverse=True
+            )
+
+            num_keywords = max(
+                self.min_keywords,
+                min(len(keyword_scores), self.max_keywords)
+            )
+
+            return [
+                {
+                    'text': keyword,
+                    'type': 'KEYWORD',
+                    'score': float(score)
+                }
+                for keyword, score in keyword_scores[:num_keywords]
+            ]
+        except Exception as e:
+            return []
+
+    def extract_all_authors(self) -> Dict[str, List[Dict]]:
+        """Extract keywords for all collected authors."""
+        return {author: self.extract_per_author(author)
+                for author in self.author_texts.keys()}
+
+    def get_extractor_type(self) -> str:
+        return 'keyword'
+```
+
+#### 6. Exact Match Extractor
+
+**Location**: `src/core/extractors/exact_match_extractor.py`
+
+```python
+from typing import List, Dict
+from .base_extractor import BaseExtractor
+
+class ExactMatchExtractor(BaseExtractor):
+    """Return exact text value without extraction."""
+
+    def extract_from_text(self, text: str, **kwargs) -> List[Dict]:
+        if not text or not text.strip():
+            return []
+
+        return [{
+            'text': text.strip(),
+            'type': 'EXACT',
+            'score': 1.0
+        }]
+
+    def extract_batch(self, texts: List[str], **kwargs) -> List[List[Dict]]:
+        return [self.extract_from_text(text) for text in texts]
+
+    def get_extractor_type(self) -> str:
+        return 'exact'
+```
+
+---
+
+## Implementation Details
+
+### Pipeline Modifications
+
+**Location**: `src/core/pipeline.py`
+
+**Key Changes**:
+
+1. Add `extraction_method` and `extractor_config` parameters to `__init__()`
+2. Create `_create_extractor()` factory method
+3. Add `node_metadata_columns` and `edge_metadata_columns` to `process_file()`
+4. Handle keyword extraction specially (two-pass)
+5. Extract and pass metadata to `NetworkBuilder`
+
+**Example**:
+
+```python
+class SocialNetworkPipeline:
+    def __init__(
+        self,
+        extraction_method: str = "ner",
+        extractor_config: Optional[Dict] = None,
+        # ... existing parameters
+    ):
+        self.extraction_method = extraction_method
+        self.extractor = self._create_extractor(extraction_method, extractor_config)
+        # ... rest of init
+
+    def _create_extractor(self, method: str, config: Optional[Dict]) -> BaseExtractor:
+        """Factory method to create appropriate extractor."""
+        from .extractors import (
+            NERExtractor, HashtagExtractor, MentionExtractor,
+            DomainExtractor, KeywordExtractor, ExactMatchExtractor
+        )
+
+        config = config or {}
+
+        if method == "ner":
+            return NERExtractor(**config)
+        elif method == "hashtag":
+            return HashtagExtractor(**config)
+        elif method == "mention":
+            return MentionExtractor(**config)
+        elif method == "domain":
+            return DomainExtractor(**config)
+        elif method == "keyword":
+            return KeywordExtractor(**config)
+        elif method == "exact":
+            return ExactMatchExtractor(**config)
+        else:
+            raise ValueError(f"Unknown extraction method: {method}")
+
+    def process_file(
+        self,
+        # ... existing parameters
+        node_metadata_columns: Optional[List[str]] = None,
+        edge_metadata_columns: Optional[List[str]] = None
+    ) -> Tuple[nx.DiGraph, Dict]:
+        """Process file with optional metadata."""
+
+        # For keyword extraction, use two-pass approach
+        if self.extraction_method == "keyword":
+            return self._process_file_keyword(...)
+        else:
+            return self._process_file_standard(...)
+```
+
+### NetworkBuilder Modifications
+
+**Location**: `src/core/network_builder.py`
+
+**Key Changes**:
+
+```python
+def add_post(
+    self,
+    author: str,
+    entities: List[Dict],
+    post_id: Optional[str] = None,
+    timestamp: Optional[str] = None,
+    node_metadata: Optional[Dict] = None,  # NEW
+    edge_metadata: Optional[Dict] = None   # NEW
+):
+    """Add post to network with optional metadata."""
+
+    # Add author node with metadata
+    if not self.graph.has_node(author):
+        node_attrs = {
+            'node_type': 'author',
+            'label': author,
+            'mention_count': 0,
+            'post_count': 0
+        }
+        if node_metadata:
+            node_attrs.update(node_metadata)
+        self.graph.add_node(author, **node_attrs)
+
+    # Process entities with edge metadata
+    for entity in entities:
+        self._add_entity_edge(
+            author, entity['text'], entity['type'], entity['score'],
+            post_id, timestamp, edge_metadata
+        )
+```
+
+### Streamlit UI Updates
+
+**Location**: `src/cli/app.py`
+
+**Major Additions**:
+
+1. **Extraction method selector**:
+
+```python
+extraction_method = st.selectbox(
+    "Choose Extraction Method",
+    ["NER (Named Entities)", "Hashtags", "Mentions (@username)",
+     "URL Domains", "Keywords (TF-IDF)", "Exact Match"]
 )
 ```
 
-**Deliverable**: Working project skeleton with installable package
+2. **Method-specific configuration panels**
+3. **Metadata column selectors**:
 
----
-
-### Step 1.2: Data Loader Module (Days 2-3)
-**Objective**: Implement robust file loading for CSV and NDJSON
-
-**File**: `src/core/data_loader.py`
-
-**Key Functions**:
-1. `load_csv(filepath, chunksize=10000)` - Iterator for CSV files
-2. `load_ndjson(filepath, chunksize=10000)` - Iterator for NDJSON
-3. `detect_encoding(filepath)` - Auto-detect file encoding
-4. `validate_columns(df, author_col, text_col)` - Verify required columns
-
-**Implementation Notes**:
-- Use `pandas.read_csv()` with `chunksize` for memory efficiency
-- For NDJSON, use `pd.read_json(lines=True, chunksize=...)`
-- Handle encoding: UTF-8, Latin-1, CP1252
-- Strip whitespace from column names
-- Handle missing values (drop or fill with empty string)
-
-**Test Cases**:
-- Small CSV (100 rows)
-- Large CSV (100k+ rows)
-- NDJSON with various encodings
-- Files with missing values
-- Malformed files (should raise clear errors)
-
-**Deliverable**: Tested data loading module that handles both formats efficiently
-
----
-
-### Step 1.3: NER Engine Module (Days 4-7)
-**Objective**: Implement NER extraction using Hugging Face transformers
-
-**File**: `src/core/ner_engine.py`
-
-**Key Classes**:
 ```python
-class NEREngine:
-    def __init__(self, model_name, device='cuda', confidence_threshold=0.85):
-        """Initialize NER model"""
-        
-    def extract_entities(self, texts, batch_size=32):
-        """
-        Extract entities from list of texts
-        Returns: List of dicts with entities per text
-        """
-        
-    def _aggregate_entities(self, ner_results):
-        """Aggregate sub-word tokens into full entities"""
+node_metadata_cols = st.multiselect(
+    "Node Metadata Columns",
+    available_columns,
+    help="Attach these columns as attributes to nodes"
+)
+
+edge_metadata_cols = st.multiselect(
+    "Edge Metadata Columns",
+    available_columns,
+    help="Attach these columns as attributes to edges"
+)
 ```
 
-**Recommended Model**: `Davlan/xlm-roberta-base-ner-hrl`
-- Supports: English, German, Dutch, Spanish, Italian, French, Polish, Portuguese, Danish, Norwegian
-- Entity types: PER, LOC, ORG, MISC
-- Good balance of speed and accuracy
-
-**Alternative**: `Babelscape/wikineural-multilingual-ner`
-- More languages but slightly larger
-
-**Implementation Steps**:
-1. Load model and tokenizer from Hugging Face
-2. Implement batching logic for GPU efficiency
-3. Handle tokenization and entity aggregation
-4. Filter entities by confidence threshold
-5. Post-process entities (normalize whitespace, remove punctuation)
-6. Cache model locally in `models/` directory
-
-**Key Considerations**:
-- Use `pipeline('ner', model=..., aggregation_strategy='simple')`
-- Aggregation strategy 'simple' merges sub-tokens (e.g., "##ensen" → "Jensen")
-- Clear GPU cache between batches for memory management
-- Add progress bar with `tqdm`
-
-**Test Cases**:
-- English text with known entities
-- Danish text with known entities
-- Mixed language text
-- Very long posts (>512 tokens - should truncate)
-- Empty/null text (should return empty list)
-
-**Deliverable**: Working NER engine that extracts PER/LOC/ORG from multilingual text
-
 ---
 
-### Step 1.4: Entity Resolution Module (Days 8-9)
-**Objective**: Deduplicate entities and match author names
+## File Structure
 
-**File**: `src/core/entity_resolver.py`
-
-**Key Functions**:
-```python
-class EntityResolver:
-    def __init__(self, fuzzy_threshold=0.9):
-        """Initialize resolver with fuzzy matching threshold"""
-        
-    def normalize_entity(self, entity_text):
-        """Normalize entity for matching (lowercase, whitespace)"""
-        
-    def deduplicate_entities(self, entity_list):
-        """
-        Remove duplicate entities
-        Returns: Dict mapping normalized -> canonical form
-        """
-        
-    def match_author_entities(self, author_name, entity_text):
-        """Check if entity matches author (with fuzzy matching)"""
+```
+some2net/
+├── src/
+│   ├── core/
+│   │   ├── extractors/                    # NEW
+│   │   │   ├── __init__.py
+│   │   │   ├── base_extractor.py
+│   │   │   ├── ner_extractor.py
+│   │   │   ├── hashtag_extractor.py
+│   │   │   ├── mention_extractor.py
+│   │   │   ├── domain_extractor.py
+│   │   │   ├── keyword_extractor.py
+│   │   │   └── exact_match_extractor.py
+│   │   ├── pipeline.py                   # MODIFIED
+│   │   ├── network_builder.py            # MODIFIED
+│   │   └── ... (other modules)
+│   ├── cli/
+│   │   └── app.py                        # MODIFIED
+│   └── utils/
+│       └── ...
+├── tests/
+│   ├── test_extractors/                  # NEW
+│   │   ├── test_hashtag_extractor.py
+│   │   ├── test_mention_extractor.py
+│   │   ├── test_domain_extractor.py
+│   │   ├── test_keyword_extractor.py
+│   │   └── test_exact_match_extractor.py
+│   └── test_metadata_integration.py      # NEW
+├── examples/
+│   ├── example_hashtag_network.py        # NEW
+│   └── example_keyword_network.py        # NEW
+├── IMPLEMENTATION_PLAN.md                # THIS FILE
+└── README.md                             # UPDATE
 ```
 
-**Implementation**:
-1. Normalize entities: lowercase, strip, collapse whitespace
-2. Use dict to map normalized → original (first occurrence)
-3. Optional: Levenshtein distance for fuzzy matching
-4. For author matching: check if author name substring in entity or vice versa
-
-**Test Cases**:
-- Exact duplicates: "John Smith" vs "john smith"
-- Whitespace variants: "New York" vs "New  York"
-- Fuzzy matches: "Copenhagen" vs "Copenhagn" (typo)
-- Author-entity matching: author="@johndoe", entity="John Doe"
-
-**Deliverable**: Entity deduplication and author-matching system
-
 ---
 
-### Step 1.5: Network Builder Module (Days 10-12)
-**Objective**: Construct directed network from NER results
+## Implementation Phases
 
-**File**: `src/core/network_builder.py`
+### Phase 1: Foundation (Week 1)
 
-**Key Class**:
-```python
-class NetworkBuilder:
-    def __init__(self):
-        self.graph = nx.DiGraph()
-        self.entity_resolver = EntityResolver()
-        
-    def add_post(self, author, entities, post_id=None, timestamp=None):
-        """Add post data to network"""
-        
-    def finalize_network(self):
-        """Compute statistics and prepare for export"""
-        
-    def get_statistics(self):
-        """Return network statistics dict"""
-```
+**Goal**: Create extractor abstraction and simple extractors
 
-**Network Structure**:
-- Nodes: authors + entities (PER/LOC/ORG)
-- Node attributes: 
-  - `node_type`: 'author', 'person', 'location', 'organization'
-  - `label`: display name
-  - `mention_count`: number of times mentioned
-- Edges: directed from author to entity
-- Edge attributes:
-  - `weight`: number of mentions
-  - `entity_type`: PER/LOC/ORG/AUTHOR
-  - `source_posts`: list of post IDs
-
-**Implementation Steps**:
-1. For each post, extract author and entities
-2. Add author node if not exists
-3. For each entity:
-   - Normalize and deduplicate
-   - Add entity node if not exists
-   - Add/update edge from author to entity (increment weight)
-4. Special case: if entity matches another author, create author-author edge
-5. Store metadata in node/edge attributes
-
-**Test Cases**:
-- Single author, multiple entities
-- Multiple authors mentioning same entity
-- Author mentioning another author
-- Edge weight accumulation
-
-**Deliverable**: Complete network construction pipeline
-
----
-
-### Step 1.6: Export Module (Days 13-14)
-**Objective**: Export network in multiple formats
-
-**File**: `src/utils/exporters.py`
-
-**Key Functions**:
-```python
-def export_graphml(graph, filepath):
-    """Export to GraphML (Gephi-compatible)"""
-    
-def export_gexf(graph, filepath):
-    """Export to GEXF format"""
-    
-def export_json(graph, filepath):
-    """Export to node-link JSON (D3.js compatible)"""
-    
-def export_edgelist(graph, filepath):
-    """Export to CSV edge list"""
-    
-def export_statistics(stats, filepath):
-    """Export statistics to JSON"""
-```
-
-**Implementation**:
-- Use `networkx.write_graphml()` for GraphML
-- Use `networkx.write_gexf()` for GEXF
-- Use `networkx.node_link_data()` for JSON
-- Custom CSV writer for edge list
-- Include all node/edge attributes
-
-**Test Cases**:
-- Export and re-import in Gephi
-- Verify all attributes are preserved
-- Test with large networks (10k+ nodes)
-
-**Deliverable**: Multi-format export functionality
-
----
-
-### Step 1.7: Integration & Pipeline (Day 15)
-**Objective**: Connect all modules into end-to-end pipeline
-
-**File**: `src/core/pipeline.py`
-
-**Key Function**:
-```python
-def process_social_media_data(
-    filepath,
-    author_column,
-    text_column,
-    file_format='csv',
-    output_dir='./output',
-    model_name='Davlan/xlm-roberta-base-ner-hrl',
-    batch_size=32,
-    confidence_threshold=0.85,
-    progress_callback=None
-):
-    """
-    End-to-end processing pipeline
-    
-    Returns:
-        graph: NetworkX graph object
-        statistics: Dict of network statistics
-    """
-```
-
-**Pipeline Steps**:
-1. Load data in chunks
-2. For each chunk:
-   - Extract text and author
-   - Run NER on batch of texts
-   - Add results to network builder
-   - Update progress
-3. Finalize network
-4. Compute statistics
-5. Export to all formats
-6. Return graph and stats
-
-**Deliverable**: Working end-to-end pipeline that can be called programmatically
-
----
-
-## Phase 2: User Interface (Week 4)
-
-### Step 2.1: Streamlit Web Interface (Days 16-19)
-**Objective**: Create minimal web UI for non-technical users
-
-**File**: `src/cli/app.py`
-
-**Page Structure**:
-1. **Header**: Title, description
-2. **Configuration Section**:
-   - File uploader (CSV/NDJSON)
-   - Author column selector (dropdown)
-   - Text column selector (dropdown)
-   - Entity type checkboxes (PER, LOC, ORG)
-   - Advanced settings (expandable):
-     - Confidence threshold slider
-     - Batch size input
-     - Model selection dropdown
-3. **Processing Section**:
-   - "Process Data" button
-   - Progress bar
-   - Status messages
-4. **Results Section**:
-   - Network statistics (cards/metrics)
-   - Download buttons (GraphML, GEXF, JSON, CSV)
-   - Basic network visualization (optional, using networkx + matplotlib)
-
-**Key Streamlit Components**:
-```python
-import streamlit as st
-import pandas as pd
-
-st.title("Social Network Analytics")
-st.write("Extract social networks from social media posts")
-
-uploaded_file = st.file_uploader("Upload CSV or NDJSON", type=['csv', 'ndjson'])
-
-if uploaded_file:
-    # Preview data
-    df_preview = pd.read_csv(uploaded_file, nrows=10)
-    st.write("Data Preview:", df_preview)
-    
-    # Column selectors
-    author_col = st.selectbox("Select author column", df_preview.columns)
-    text_col = st.selectbox("Select text column", df_preview.columns)
-    
-    # Process button
-    if st.button("Process Data"):
-        with st.spinner("Processing..."):
-            # Run pipeline
-            progress_bar = st.progress(0)
-            # ... processing logic ...
-            st.success("Processing complete!")
-```
-
-**Implementation Notes**:
-- Use `st.session_state` to cache model loading
-- Display processing time
-- Show sample of extracted entities
-- Provide download buttons using `st.download_button()`
-
-**Deliverable**: Functional web interface accessible via browser
-
----
-
-### Step 2.2: Command-Line Interface (Days 19-20)
-**Objective**: Create CLI for power users
-
-**File**: `src/cli/cli.py`
-
-**Implementation**:
-```python
-import argparse
-
-def main():
-    parser = argparse.ArgumentParser(
-        description='Social Network Analytics CLI'
-    )
-    parser.add_argument('input_file', help='Path to CSV or NDJSON file')
-    parser.add_argument('--author-col', required=True, help='Author column name')
-    parser.add_argument('--text-col', required=True, help='Text column name')
-    parser.add_argument('--output-dir', default='./output', help='Output directory')
-    parser.add_argument('--format', choices=['csv', 'ndjson'], default='csv')
-    parser.add_argument('--model', default='Davlan/xlm-roberta-base-ner-hrl')
-    parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--confidence', type=float, default=0.85)
-    
-    args = parser.parse_args()
-    
-    # Run pipeline
-    process_social_media_data(
-        filepath=args.input_file,
-        author_column=args.author_col,
-        text_column=args.text_col,
-        # ... other args
-    )
-    
-if __name__ == '__main__':
-    main()
-```
-
-**Deliverable**: CLI tool for batch processing
-
----
-
-## Phase 3: Polish & Testing (Week 5)
-
-### Step 3.1: Error Handling (Days 21-22)
 **Tasks**:
-1. Add try-except blocks throughout
-2. Create custom exception classes
-3. Log errors to file
-4. Display user-friendly error messages
-5. Create error report export
+1. Create `src/core/extractors/` directory
+2. Implement `base_extractor.py`
+3. Implement simple extractors: hashtag, mention, domain, exact
+4. Write unit tests for each
+5. Create `__init__.py` for easy imports
 
-**Key Areas**:
-- File reading errors (encoding, format)
-- Column not found errors
-- GPU/CUDA errors (fallback to CPU)
-- Model loading errors
-- Network export errors
+**Deliverable**: Working simple extractors with tests
 
 ---
 
-### Step 3.2: Testing (Days 22-24)
+### Phase 2: Advanced Extraction + Metadata (Week 2)
+
+**Goal**: Add keyword extraction and metadata support
+
 **Tasks**:
-1. Write unit tests for each module
-2. Create integration tests
-3. Generate test data (Danish + English)
-4. Test edge cases
-5. Performance testing with large files
+1. Implement `keyword_extractor.py` with TF-IDF
+2. Wrap existing NER as `ner_extractor.py`
+3. Modify `NetworkBuilder` to accept metadata
+4. Write integration tests for metadata
+5. Update exporters to preserve metadata
 
-**Test Structure**:
-```
-tests/
-├── test_data_loader.py
-├── test_ner_engine.py
-├── test_entity_resolver.py
-├── test_network_builder.py
-├── test_exporters.py
-├── test_pipeline.py
-└── fixtures/
-    ├── sample_small.csv
-    ├── sample_danish.csv
-    └── sample_multilingual.ndjson
-```
+**Deliverable**: Keyword extraction + metadata support
 
 ---
 
-### Step 3.3: Documentation (Day 25)
+### Phase 3: Pipeline Integration (Week 3)
+
+**Goal**: Integrate extractors into pipeline
+
 **Tasks**:
-1. Complete README.md with:
-   - Installation guide
-   - Quick start
-   - Usage examples
-   - Configuration guide
-2. Add docstrings to all functions
-3. Create example Jupyter notebook
-4. Add inline comments
-5. Create CHANGELOG.md
+1. Modify `SocialNetworkPipeline.__init__()`
+2. Implement `_create_extractor()` factory
+3. Update `process_file()` with metadata parameters
+4. Implement two-pass processing for keywords
+5. Write end-to-end integration tests
+
+**Deliverable**: Fully functional pipeline
 
 ---
 
-## Development Best Practices
+### Phase 4: UI & Documentation (Week 4)
 
-### Code Quality
-- Use type hints throughout
-- Follow PEP 8 style guide
-- Use Black for code formatting
-- Use pylint for linting
-- Aim for 80%+ test coverage
+**Goal**: Update UI and documentation
 
-### Git Workflow
-- Use feature branches
-- Meaningful commit messages
-- Tag releases (v0.1.0, etc.)
+**Tasks**:
+1. Add extraction method selector to UI
+2. Add method-specific configuration panels
+3. Add metadata column selection UI
+4. Create example scripts
+5. Update documentation
 
-### Performance Optimization
-- Profile code with `cProfile`
-- Monitor GPU memory usage
-- Use batch processing for all operations
-- Cache model and intermediate results
-
-### Debugging
-- Add verbose logging mode
-- Use logging module (not print statements)
-- Include timing information
-- Create debug mode for step-by-step execution
+**Deliverable**: Complete UI and docs
 
 ---
 
-## Deployment Checklist
+## Testing Strategy
 
-### Pre-Release
-- [ ] All tests passing
+### Unit Tests
+
+**For each extractor**:
+- Extract single item
+- Extract multiple items
+- Handle Unicode
+- Case normalization
+- Empty text handling
+- No matches in text
+
+### Integration Tests
+
+**Pipeline with different methods**:
+- Process file with each extraction method
+- Metadata flow through pipeline
+- Export with all formats
+- Large dataset performance
+
+### End-to-End Tests
+
+- Full workflow with each method
+- Full workflow with metadata
+- Export verification
+
+---
+
+## Considerations & Edge Cases
+
+### 1. Keyword Extraction
+- **Challenge**: Requires all texts per author
+- **Solution**: Two-pass processing, first collect then extract
+- **Edge case**: Author with single short post may not reach min_keywords
+
+### 2. Metadata Handling
+- **Challenge**: Different data types, missing values, name conflicts
+- **Solution**: Convert to strings, use None for missing, prefix with `meta_`
+- **Edge case**: Column doesn't exist in some chunks → skip gracefully
+
+### 3. Hashtag & Mention
+- **Challenge**: Unicode support, platform-specific patterns
+- **Solution**: Unicode-aware regex, configurable patterns
+- **Edge case**: Email addresses contain @ → validate and filter
+
+### 4. Domain Extraction
+- **Challenge**: URL shorteners, malformed URLs, non-HTTP
+- **Solution**: Robust parsing with exception handling
+- **Edge case**: URL with port → remove port number
+
+### 5. Memory Management
+- **Challenge**: Keyword extraction stores all texts
+- **Solution**: Stream texts, clear after processing
+- **Monitoring**: Log memory usage, warn on large datasets
+
+---
+
+## Success Metrics
+
+### Development
+- [ ] All extractors implemented
+- [ ] Test coverage >80%
 - [ ] Documentation complete
-- [ ] Example data included
-- [ ] Requirements.txt finalized
-- [ ] Setup.py tested on fresh environment
-- [ ] README instructions verified
+- [ ] UI updated
 
-### Release
-- [ ] Tag release in git
-- [ ] Create GitHub release
-- [ ] Upload to PyPI (optional)
-- [ ] Create demo video
-- [ ] Deploy demo instance (optional)
+### Performance
+- [ ] Simple extractors: <1s for 10K posts
+- [ ] Keyword extraction: <60s for 10K posts
+- [ ] Metadata overhead: <10%
 
----
-
-## Troubleshooting Guide
-
-### Common Issues
-
-**Issue**: Model download fails
-- **Solution**: Pre-download model, provide local path option
-
-**Issue**: GPU out of memory
-- **Solution**: Reduce batch size, add automatic fallback
-
-**Issue**: Encoding errors in CSV
-- **Solution**: Try multiple encodings, use chardet library
-
-**Issue**: Network too large to visualize
-- **Solution**: Add filtering options, export subgraphs
-
-**Issue**: NER missing obvious entities
-- **Solution**: Lower confidence threshold, try different model
+### User Experience
+- [ ] Clear method selection UI
+- [ ] Helpful tooltips
+- [ ] Informative errors
+- [ ] Export preserves metadata
 
 ---
 
-## Performance Benchmarks
+## Conclusion
 
-**Target Performance** (on NVIDIA RTX 3080):
-- 10,000 posts: < 5 minutes
-- 100,000 posts: < 30 minutes
-- 1,000,000 posts: < 5 hours
+This plan provides a comprehensive roadmap for adding multi-method extraction and metadata support while maintaining backward compatibility and code quality. The modular design allows for easy addition of new extraction methods in the future.
 
-**Optimization Strategies**:
-1. Increase batch size (32 → 64)
-2. Use mixed precision (FP16)
-3. Parallelize file reading and NER processing
-4. Cache entity normalization results
-
----
-
-## Future Roadmap (Post-Prototype)
-
-### Version 0.2.0
-- Database backend (SQLite/PostgreSQL)
-- Advanced entity resolution (ML-based coreference)
-- Temporal network analysis
-- Interactive visualization with Plotly
-
-### Version 0.3.0
-- REST API
-- Docker containerization
-- Multi-user support
-- Real-time processing
-
-### Version 1.0.0
-- Production-ready
-- Advanced analytics (centrality, community detection)
-- Sentiment analysis integration
-- Platform-specific data collectors
-
----
-
-## Resources
-
-### Documentation Links
-- [Hugging Face Transformers](https://huggingface.co/docs/transformers/)
-- [NetworkX Documentation](https://networkx.org/documentation/stable/)
-- [Streamlit Documentation](https://docs.streamlit.io/)
-- [PyTorch Documentation](https://pytorch.org/docs/)
-
-### Recommended Models
-1. **Davlan/xlm-roberta-base-ner-hrl** (recommended)
-   - 10 high-resource languages including Danish
-   - F1: ~90% on English, ~85% on Danish
-   
-2. **Babelscape/wikineural-multilingual-ner**
-   - 9 languages, Wikipedia-trained
-   - Good for rare entities
-
-3. **xlm-roberta-large-finetuned-conll03-english**
-   - English-focused but works multilingually
-   - Higher accuracy but slower
-
-### Testing Data Sources
-- [Danish Twitter Corpus](https://github.com/certainlyio/nordic_bert)
-- [Multilingual Named Entity Resources](https://github.com/dice-group/FOX)
-
----
-
-## Contact & Support
-
-For questions or issues:
-1. Check documentation
-2. Review example notebooks
-3. Search existing GitHub issues
-4. Create new issue with:
-   - Python version
-   - GPU info
-   - Error message
-   - Sample data (if possible)
-
----
-
-**End of Implementation Plan**
-
-This plan provides a structured approach to building the social network analytics library. Adjust timelines based on your expertise and available time. Focus on getting Phase 1 working robustly before moving to UI development.
+**Next Steps**: Begin Phase 1 implementation with base extractor and simple extractors.
