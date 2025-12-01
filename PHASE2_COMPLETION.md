@@ -9,20 +9,20 @@ Phase 2 of the implementation plan focused on adding advanced extraction capabil
 
 ## Completed Tasks
 
-### 1. ✅ Keyword Extractor with TF-IDF
+### 1. ✅ Keyword Extractor with RAKE
 
 **File**: `src/core/extractors/keyword_extractor.py`
 
 **Features**:
-- Extracts 5-20 keywords per author using TF-IDF
-- Supports unigrams and bigrams
-- Configurable stop words, min/max keywords
+- Extracts 5-20 keywords per author using RAKE (Rapid Automatic Keyword Extraction)
+- Supports multi-word phrases (1-3 words)
+- Configurable language, phrase length, ranking metric
 - Two-pass processing: collect texts first, then extract keywords
 - Batch processing with progress tracking
 
 **Key Methods**:
 - `collect_texts(author, texts)` - First pass: collect texts per author
-- `extract_per_author(author)` - Extract keywords for specific author
+- `extract_per_author(author)` - Extract keywords for specific author using RAKE
 - `extract_all_authors()` - Extract keywords for all collected authors
 
 **Configuration Options**:
@@ -30,10 +30,10 @@ Phase 2 of the implementation plan focused on adding advanced extraction capabil
 KeywordExtractor(
     min_keywords=5,
     max_keywords=20,
-    stop_words='english',
-    ngram_range=(1, 2),
-    min_df=1,
-    max_df=0.95
+    language='english',
+    max_phrase_length=3,
+    min_phrase_length=1,
+    ranking_metric='degree_to_frequency_ratio'
 )
 ```
 
@@ -116,7 +116,8 @@ builder.add_post(
 **File**: `requirements.txt`
 
 **Added**:
-- `scikit-learn>=1.3.0` - Required for TF-IDF keyword extraction
+- `rake-nltk>=1.0.6` - Required for RAKE keyword extraction
+- `nltk>=3.8` - Required for rake-nltk
 
 ## Code Quality
 

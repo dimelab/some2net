@@ -1,15 +1,19 @@
 """
 Keyword Extractor Module
 
-Extracts keywords using TF-IDF on unigrams and bigrams.
+Extracts keywords using RAKE (Rapid Automatic Keyword Extraction).
 Requires two-pass processing: first collect texts per author, then extract keywords.
 """
 
 from typing import List, Dict, Optional
 from collections import defaultdict
-from sklearn.feature_extraction.text import TfidfVectorizer
 import logging
 from tqdm import tqdm
+
+try:
+    from rake_nltk import Rake
+except ImportError:
+    Rake = None
 
 from .base_extractor import BaseExtractor
 
@@ -18,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 class KeywordExtractor(BaseExtractor):
     """
-    Extract keywords using TF-IDF on unigrams and bigrams.
+    Extract keywords using RAKE (Rapid Automatic Keyword Extraction).
+
+    RAKE is an unsupervised, domain-independent keyword extraction algorithm
+    that identifies key phrases based on word co-occurrence and frequency.
 
     This extractor requires a two-pass approach:
     1. First pass: Collect all texts for each author
@@ -40,33 +47,63 @@ class KeywordExtractor(BaseExtractor):
         self,
         min_keywords: int = 5,
         max_keywords: int = 20,
-        stop_words: str = 'english',
-        ngram_range: tuple = (1, 2),
-        min_df: int = 1,
-        max_df: float = 0.95
+        language: str = 'english',
+        max_phrase_length: int = 3,
+        min_phrase_length: int = 1,
+        ranking_metric: str = 'degree_to_frequency_ratio'
     ):
         """
-        Initialize keyword extractor.
+        Initialize keyword extractor using RAKE.
 
         Args:
             min_keywords: Minimum number of keywords to extract per author
             max_keywords: Maximum number of keywords to extract per author
-            stop_words: Stop words language ('english', 'none', etc.)
-            ngram_range: Range of n-grams (default: (1,2) for unigrams and bigrams)
-            min_df: Minimum document frequency for terms
-            max_df: Maximum document frequency for terms (as fraction)
+            language: Language for stopwords ('english', 'danish', etc.)
+            max_phrase_length: Maximum number of words in a keyword phrase
+            min_phrase_length: Minimum number of words in a keyword phrase
+            ranking_metric: Metric for ranking keywords
+                - 'degree_to_frequency_ratio' (default, best for most cases)
+                - 'word_degree' (favors longer phrases)
+                - 'word_frequency' (favors frequent words)
         """
+        if Rake is None:
+            raise ImportError(
+                "rake-nltk is required for keyword extraction. "
+                "Install it with: pip install rake-nltk"
+            )
+
         self.min_keywords = min_keywords
         self.max_keywords = max_keywords
-        self.stop_words = stop_words if stop_words != 'none' else None
-        self.ngram_range = ngram_range
-        self.min_df = min_df
-        self.max_df = max_df
+        self.language = language
+        self.max_phrase_length = max_phrase_length
+        self.min_phrase_length = min_phrase_length
+        self.ranking_metric = ranking_metric
 
         # Storage for author texts (first pass)
         self.author_texts = defaultdict(list)
 
-        logger.info(f"KeywordExtractor initialized: {min_keywords}-{max_keywords} keywords per author")
+        logger.info(f"KeywordExtractor initialized: {min_keywords}-{max_keywords} keywords per author using RAKE")
+
+    def _create_rake_instance(self) -> Rake:
+        """Create a new RAKE instance with configured parameters."""
+        # Map ranking metric string to RAKE constant
+        metric_map = {
+            'degree_to_frequency_ratio': Rake.DEGREE_TO_FREQUENCY_RATIO,
+            'word_degree': Rake.WORD_DEGREE,
+            'word_frequency': Rake.WORD_FREQUENCY
+        }
+
+        metric = metric_map.get(
+            self.ranking_metric,
+            Rake.DEGREE_TO_FREQUENCY_RATIO
+        )
+
+        return Rake(
+            language=self.language,
+            max_length=self.max_phrase_length,
+            min_length=self.min_phrase_length,
+            ranking_metric=metric
+        )
 
     def extract_from_text(self, text: str, **kwargs) -> List[Dict]:
         """
@@ -154,7 +191,7 @@ class KeywordExtractor(BaseExtractor):
         texts: Optional[List[str]] = None
     ) -> List[Dict]:
         """
-        Extract keywords for a specific author.
+        Extract keywords for a specific author using RAKE.
 
         Args:
             author: Author identifier
@@ -188,45 +225,45 @@ class KeywordExtractor(BaseExtractor):
         combined_text = ' '.join(author_texts)
 
         try:
-            # Create TF-IDF vectorizer
-            vectorizer = TfidfVectorizer(
-                ngram_range=self.ngram_range,
-                max_features=self.max_keywords * 2,  # Extract more, then filter
-                stop_words=self.stop_words,
-                min_df=self.min_df,
-                lowercase=True,
-                max_df=self.max_df
-            )
+            # Create RAKE instance
+            rake = self._create_rake_instance()
 
-            # Fit and transform
-            tfidf_matrix = vectorizer.fit_transform([combined_text])
-            feature_names = vectorizer.get_feature_names_out()
-            scores = tfidf_matrix.toarray()[0]
+            # Extract keywords
+            rake.extract_keywords_from_text(combined_text)
 
-            # Sort by score
-            keyword_scores = sorted(
-                zip(feature_names, scores),
-                key=lambda x: x[1],
-                reverse=True
-            )
+            # Get ranked phrases with scores
+            ranked_phrases = rake.get_ranked_phrases_with_scores()
+
+            if not ranked_phrases:
+                logger.warning(f"No keywords extracted for {author}")
+                return []
+
+            # Sort by score (descending)
+            ranked_phrases.sort(key=lambda x: x[0], reverse=True)
 
             # Determine how many keywords to extract
             # At least min_keywords, at most max_keywords
             num_keywords = max(
                 self.min_keywords,
-                min(len(keyword_scores), self.max_keywords)
+                min(len(ranked_phrases), self.max_keywords)
             )
 
+            # Normalize scores to 0-1 range
+            max_score = ranked_phrases[0][0] if ranked_phrases else 1.0
+            min_score = ranked_phrases[-1][0] if ranked_phrases else 0.0
+            score_range = max_score - min_score if max_score > min_score else 1.0
+
             # Return top keywords
-            results = [
-                {
-                    'text': keyword,
+            results = []
+            for score, phrase in ranked_phrases[:num_keywords]:
+                # Normalize score to 0-1 range
+                normalized_score = (score - min_score) / score_range if score_range > 0 else 0.5
+
+                results.append({
+                    'text': phrase,
                     'type': 'KEYWORD',
-                    'score': float(score)
-                }
-                for keyword, score in keyword_scores[:num_keywords]
-                if score > 0  # Only include keywords with non-zero scores
-            ]
+                    'score': float(normalized_score)
+                })
 
             logger.debug(f"Extracted {len(results)} keywords for {author}")
             return results
@@ -278,12 +315,13 @@ class KeywordExtractor(BaseExtractor):
         """
         return {
             'type': 'keyword',
+            'algorithm': 'RAKE',
             'min_keywords': self.min_keywords,
             'max_keywords': self.max_keywords,
-            'stop_words': self.stop_words,
-            'ngram_range': self.ngram_range,
-            'min_df': self.min_df,
-            'max_df': self.max_df
+            'language': self.language,
+            'max_phrase_length': self.max_phrase_length,
+            'min_phrase_length': self.min_phrase_length,
+            'ranking_metric': self.ranking_metric
         }
 
     def get_author_count(self) -> int:
@@ -326,7 +364,7 @@ if __name__ == "__main__":
     extractor = KeywordExtractor(
         min_keywords=5,
         max_keywords=10,
-        stop_words='english'
+        language='english'
     )
 
     # Simulate collecting texts from posts

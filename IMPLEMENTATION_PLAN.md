@@ -155,9 +155,9 @@ Extend `NetworkBuilder` and `Pipeline` to accept metadata from input columns and
 - Subdomain handling (keep `www.` vs strip)
 - URL shortener expansion (future)
 
-### Feature 4: Keyword Extraction (TF-IDF)
+### Feature 4: Keyword Extraction (RAKE)
 
-**Description**: Extract 5-20 keywords per author using TF-IDF on unigrams and bigrams from all their posts.
+**Description**: Extract 5-20 keywords per author using RAKE (Rapid Automatic Keyword Extraction) from all their posts.
 
 **Example Network**:
 ```
@@ -168,8 +168,9 @@ Extend `NetworkBuilder` and `Pipeline` to accept metadata from input columns and
 
 **Configuration Options**:
 - Min/max keywords per author (5-20 default)
-- Stop words language
-- N-gram range (1-2 default)
+- Language for stopwords (english, danish, etc.)
+- Max/min phrase length (1-3 words default)
+- Ranking metric (degree_to_frequency_ratio, word_degree, word_frequency)
 
 **Special Considerations**:
 - Requires all texts per author before extraction
@@ -386,30 +387,34 @@ class DomainExtractor(BaseExtractor):
         return 'domain'
 ```
 
-#### 5. Keyword Extractor (TF-IDF)
+#### 5. Keyword Extractor (RAKE)
 
 **Location**: `src/core/extractors/keyword_extractor.py`
 
 ```python
 from typing import List, Dict
 from collections import defaultdict
-from sklearn.feature_extraction.text import TfidfVectorizer
+from rake_nltk import Rake
 from .base_extractor import BaseExtractor
 
 class KeywordExtractor(BaseExtractor):
-    """Extract keywords using TF-IDF on unigrams and bigrams."""
+    """Extract keywords using RAKE (Rapid Automatic Keyword Extraction)."""
 
     def __init__(
         self,
         min_keywords: int = 5,
         max_keywords: int = 20,
-        stop_words: str = 'english',
-        ngram_range: tuple = (1, 2)
+        language: str = 'english',
+        max_phrase_length: int = 3,
+        min_phrase_length: int = 1,
+        ranking_metric: str = 'degree_to_frequency_ratio'
     ):
         self.min_keywords = min_keywords
         self.max_keywords = max_keywords
-        self.stop_words = stop_words if stop_words != 'none' else None
-        self.ngram_range = ngram_range
+        self.language = language
+        self.max_phrase_length = max_phrase_length
+        self.min_phrase_length = min_phrase_length
+        self.ranking_metric = ranking_metric
         self.author_texts = defaultdict(list)
 
     def collect_texts(self, author: str, texts: List[str]):
@@ -417,51 +422,43 @@ class KeywordExtractor(BaseExtractor):
         self.author_texts[author].extend(texts)
 
     def extract_per_author(self, author: str) -> List[Dict]:
-        """Extract keywords for a specific author."""
+        """Extract keywords for a specific author using RAKE."""
         texts = self.author_texts.get(author, [])
 
-        if not texts:
-            return []
-
-        # Filter empty texts
-        texts = [t for t in texts if t and t.strip()]
         if not texts:
             return []
 
         combined_text = ' '.join(texts)
 
         try:
-            vectorizer = TfidfVectorizer(
-                ngram_range=self.ngram_range,
-                max_features=self.max_keywords * 2,
-                stop_words=self.stop_words,
-                min_df=1,
-                lowercase=True,
-                max_df=0.95
+            rake = Rake(
+                language=self.language,
+                max_length=self.max_phrase_length,
+                min_length=self.min_phrase_length
             )
 
-            tfidf_matrix = vectorizer.fit_transform([combined_text])
-            feature_names = vectorizer.get_feature_names_out()
-            scores = tfidf_matrix.toarray()[0]
+            rake.extract_keywords_from_text(combined_text)
+            ranked_phrases = rake.get_ranked_phrases_with_scores()
 
-            keyword_scores = sorted(
-                zip(feature_names, scores),
-                key=lambda x: x[1],
-                reverse=True
-            )
+            ranked_phrases.sort(key=lambda x: x[0], reverse=True)
 
             num_keywords = max(
                 self.min_keywords,
-                min(len(keyword_scores), self.max_keywords)
+                min(len(ranked_phrases), self.max_keywords)
             )
+
+            # Normalize scores to 0-1 range
+            max_score = ranked_phrases[0][0] if ranked_phrases else 1.0
+            min_score = ranked_phrases[-1][0] if ranked_phrases else 0.0
+            score_range = max_score - min_score if max_score > min_score else 1.0
 
             return [
                 {
-                    'text': keyword,
+                    'text': phrase,
                     'type': 'KEYWORD',
-                    'score': float(score)
+                    'score': float((score - min_score) / score_range)
                 }
-                for keyword, score in keyword_scores[:num_keywords]
+                for score, phrase in ranked_phrases[:num_keywords]
             ]
         except Exception as e:
             return []

@@ -44,6 +44,8 @@ class SocialNetworkPipeline:
 
     def __init__(
         self,
+        extraction_method: str = "ner",
+        extractor_config: Optional[Dict] = None,
         model_name: str = "Davlan/xlm-roberta-base-ner-hrl",
         device: Optional[str] = None,
         confidence_threshold: float = 0.85,
@@ -57,13 +59,15 @@ class SocialNetworkPipeline:
         Initialize the pipeline.
 
         Args:
-            model_name: HuggingFace model for NER
+            extraction_method: Method for extraction ('ner', 'hashtag', 'mention', 'domain', 'keyword', 'exact')
+            extractor_config: Configuration dict for the chosen extractor
+            model_name: HuggingFace model for NER (used if extraction_method='ner')
             device: Device for NER ('cuda', 'cpu', or None for auto-detect)
-            confidence_threshold: Minimum confidence for entity extraction
-            enable_cache: Whether to cache NER results
+            confidence_threshold: Minimum confidence for entity extraction (NER only)
+            enable_cache: Whether to cache NER results (NER only)
             use_entity_resolver: Whether to deduplicate entities
             create_author_edges: Whether to create author-to-author edges
-            enable_entity_linking: Whether to enable entity linking (Phase 2)
+            enable_entity_linking: Whether to enable entity linking (Phase 2, NER only)
             entity_linking_config: Configuration for entity linker
                 {
                     'confidence_threshold': 0.7,
@@ -73,24 +77,39 @@ class SocialNetworkPipeline:
         """
         logger.info("Initializing Social Network Pipeline")
 
+        # Store extraction method
+        self.extraction_method = extraction_method
+        self.extractor_config = extractor_config or {}
+
         # Initialize components
         self.data_loader = DataLoader()
-        self.ner_engine = NEREngine(
-            model_name=model_name,
-            device=device,
-            confidence_threshold=confidence_threshold,
-            enable_cache=enable_cache
+
+        # Create the appropriate extractor
+        self.extractor = self._create_extractor(
+            extraction_method,
+            extractor_config,
+            model_name,
+            device,
+            confidence_threshold,
+            enable_cache
         )
+
+        # Keep NER engine for backward compatibility (will be removed eventually)
+        if extraction_method == "ner":
+            self.ner_engine = self.extractor
+        else:
+            self.ner_engine = None
+
         self.network_builder = NetworkBuilder(
             use_entity_resolver=use_entity_resolver,
             create_author_edges=create_author_edges
         )
 
-        # Initialize entity linker if enabled
-        self.enable_entity_linking = enable_entity_linking
+        # Initialize entity linker if enabled (only for NER)
+        self.enable_entity_linking = enable_entity_linking and extraction_method == "ner"
         self.entity_linker: Optional[EntityLinker] = None
 
-        if enable_entity_linking:
+        if self.enable_entity_linking:
             logger.info("Entity linking enabled - initializing EntityLinker")
             # Default config
             default_config = {
@@ -117,7 +136,70 @@ class SocialNetworkPipeline:
             'errors': []
         }
 
-        logger.info("Pipeline initialized successfully")
+        logger.info(f"Pipeline initialized successfully with extraction method: {extraction_method}")
+
+    def _create_extractor(
+        self,
+        method: str,
+        config: Optional[Dict],
+        model_name: str,
+        device: Optional[str],
+        confidence_threshold: float,
+        enable_cache: bool
+    ):
+        """
+        Factory method to create appropriate extractor.
+
+        Args:
+            method: Extraction method name
+            config: Extractor-specific configuration
+            model_name: Model name for NER
+            device: Device for NER
+            confidence_threshold: Confidence threshold for NER
+            enable_cache: Enable cache for NER
+
+        Returns:
+            BaseExtractor instance
+        """
+        from .extractors import (
+            NERExtractor, HashtagExtractor, MentionExtractor,
+            DomainExtractor, KeywordExtractor, ExactMatchExtractor
+        )
+
+        config = config or {}
+
+        if method == "ner":
+            # For NER, use the legacy NEREngine wrapped in NERExtractor
+            # Pass model_name, device, etc. through config
+            ner_config = {
+                'model_name': model_name,
+                'device': device,
+                'confidence_threshold': confidence_threshold,
+                'enable_cache': enable_cache
+            }
+            ner_config.update(config)
+            return NERExtractor(**ner_config)
+
+        elif method == "hashtag":
+            return HashtagExtractor(**config)
+
+        elif method == "mention":
+            return MentionExtractor(**config)
+
+        elif method == "domain":
+            return DomainExtractor(**config)
+
+        elif method == "keyword":
+            return KeywordExtractor(**config)
+
+        elif method == "exact":
+            return ExactMatchExtractor(**config)
+
+        else:
+            raise ValueError(
+                f"Unknown extraction method: {method}. "
+                f"Available methods: 'ner', 'hashtag', 'mention', 'domain', 'keyword', 'exact'"
+            )
 
     def process_file(
         self,
@@ -129,7 +211,9 @@ class SocialNetworkPipeline:
         batch_size: int = 32,
         detect_languages: bool = True,
         show_progress: bool = True,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        node_metadata_columns: Optional[List[str]] = None,
+        edge_metadata_columns: Optional[List[str]] = None
     ) -> Tuple[nx.DiGraph, Dict]:
         """
         Process a social media data file end-to-end.
@@ -140,10 +224,12 @@ class SocialNetworkPipeline:
             text_column: Name of text column
             file_format: File format ('csv' or 'ndjson', auto-detected if None)
             chunksize: Number of rows to process per chunk
-            batch_size: Batch size for NER processing
-            detect_languages: Whether to detect languages
+            batch_size: Batch size for extraction processing
+            detect_languages: Whether to detect languages (NER only)
             show_progress: Whether to show progress bars
             progress_callback: Optional callback(current, total, status_msg)
+            node_metadata_columns: Optional list of column names to attach as node metadata
+            edge_metadata_columns: Optional list of column names to attach as edge metadata
 
         Returns:
             Tuple of (graph, statistics)
@@ -164,6 +250,55 @@ class SocialNetworkPipeline:
 
         logger.info(f"Processing as {file_format.upper()} with chunks of {chunksize}")
 
+        # Route to appropriate processing method based on extraction type
+        if self.extraction_method == "keyword":
+            return self._process_file_keyword(
+                filepath=filepath,
+                author_column=author_column,
+                text_column=text_column,
+                file_format=file_format,
+                chunksize=chunksize,
+                batch_size=batch_size,
+                show_progress=show_progress,
+                progress_callback=progress_callback,
+                node_metadata_columns=node_metadata_columns,
+                edge_metadata_columns=edge_metadata_columns
+            )
+        else:
+            return self._process_file_standard(
+                filepath=filepath,
+                author_column=author_column,
+                text_column=text_column,
+                file_format=file_format,
+                chunksize=chunksize,
+                batch_size=batch_size,
+                detect_languages=detect_languages,
+                show_progress=show_progress,
+                progress_callback=progress_callback,
+                node_metadata_columns=node_metadata_columns,
+                edge_metadata_columns=edge_metadata_columns
+            )
+
+    def _process_file_standard(
+        self,
+        filepath: str,
+        author_column: str,
+        text_column: str,
+        file_format: str,
+        chunksize: int,
+        batch_size: int,
+        detect_languages: bool,
+        show_progress: bool,
+        progress_callback: Optional[Callable[[int, int, str], None]],
+        node_metadata_columns: Optional[List[str]],
+        edge_metadata_columns: Optional[List[str]]
+    ) -> Tuple[nx.DiGraph, Dict]:
+        """
+        Process file using standard extraction methods (all except keyword).
+
+        This is the standard single-pass processing approach where we extract
+        entities from text as we stream through the file.
+        """
         # Step 1: Load data in chunks
         try:
             if file_format.lower() == 'csv':
@@ -201,7 +336,9 @@ class SocialNetworkPipeline:
                     batch_size,
                     detect_languages,
                     show_progress,
-                    chunk_num
+                    chunk_num,
+                    node_metadata_columns,
+                    edge_metadata_columns
                 )
 
                 # Call progress callback if provided
@@ -231,6 +368,153 @@ class SocialNetworkPipeline:
 
         return self.graph, self.statistics
 
+    def _process_file_keyword(
+        self,
+        filepath: str,
+        author_column: str,
+        text_column: str,
+        file_format: str,
+        chunksize: int,
+        batch_size: int,
+        show_progress: bool,
+        progress_callback: Optional[Callable[[int, int, str], None]],
+        node_metadata_columns: Optional[List[str]],
+        edge_metadata_columns: Optional[List[str]]
+    ) -> Tuple[nx.DiGraph, Dict]:
+        """
+        Process file using keyword extraction (two-pass approach).
+
+        Keyword extraction requires collecting all texts per author before
+        extracting keywords, so we need a two-pass approach:
+        1. First pass: Collect all texts per author
+        2. Extract keywords per author
+        3. Build network from author-keyword pairs
+        """
+        from .extractors import KeywordExtractor
+
+        logger.info("Using two-pass processing for keyword extraction")
+
+        # Ensure extractor is KeywordExtractor
+        if not isinstance(self.extractor, KeywordExtractor):
+            raise RuntimeError("Extractor must be KeywordExtractor for keyword processing")
+
+        # Step 1: Load data in chunks and collect texts per author
+        try:
+            if file_format.lower() == 'csv':
+                chunks = self.data_loader.load_csv(
+                    filepath,
+                    author_column=author_column,
+                    text_column=text_column,
+                    chunksize=chunksize
+                )
+            elif file_format.lower() in ['ndjson', 'jsonl']:
+                chunks = self.data_loader.load_ndjson(
+                    filepath,
+                    author_column=author_column,
+                    text_column=text_column,
+                    chunksize=chunksize
+                )
+            else:
+                raise ValueError(f"Unsupported file format: {file_format}")
+        except Exception as e:
+            logger.error(f"Error loading file: {e}")
+            self.processing_metadata['errors'].append(f"File loading error: {e}")
+            raise
+
+        # First pass: Collect texts per author
+        logger.info("First pass: Collecting texts per author")
+        chunk_num = 0
+        author_metadata_map = {}  # Store metadata for each author
+
+        for chunk in chunks:
+            chunk_num += 1
+            self.processing_metadata['total_chunks'] = chunk_num
+
+            try:
+                # Extract authors and texts
+                author_data = chunk[author_column]
+                text_data = chunk[text_column]
+
+                # Convert to list if it's a pandas Series
+                if hasattr(author_data, 'tolist'):
+                    authors = author_data.tolist()
+                else:
+                    authors = list(author_data) if not isinstance(author_data, list) else author_data
+
+                if hasattr(text_data, 'tolist'):
+                    texts = text_data.tolist()
+                else:
+                    texts = list(text_data) if not isinstance(text_data, list) else text_data
+
+                # Collect texts for each author
+                for author, text in zip(authors, texts):
+                    author = str(author).strip()
+                    if author and text:
+                        self.extractor.collect_texts(author, [str(text)])
+                        self.processing_metadata['total_posts'] += 1
+
+                        # Collect node metadata for this author (if not already collected)
+                        if node_metadata_columns and author not in author_metadata_map:
+                            metadata = {}
+                            for col in node_metadata_columns:
+                                if col in chunk.columns:
+                                    # Get first value for this author
+                                    idx = authors.index(author) if author in authors else None
+                                    if idx is not None and idx < len(chunk):
+                                        val = chunk[col].iloc[idx] if hasattr(chunk[col], 'iloc') else chunk[col][idx]
+                                        metadata[col] = val
+                            author_metadata_map[author] = metadata
+
+                if progress_callback:
+                    progress_callback(
+                        self.processing_metadata['total_posts'],
+                        -1,
+                        f"Collecting texts - chunk {chunk_num}"
+                    )
+
+            except Exception as e:
+                error_msg = f"Error collecting texts in chunk {chunk_num}: {e}"
+                logger.error(error_msg)
+                self.processing_metadata['errors'].append(error_msg)
+                continue
+
+        # Second pass: Extract keywords for all authors
+        logger.info("Second pass: Extracting keywords per author")
+        try:
+            author_keywords = self.extractor.extract_all_authors()
+            self.processing_metadata['entities_extracted'] = sum(len(kws) for kws in author_keywords.values())
+
+            # Build network from author-keyword pairs
+            for author, keywords in author_keywords.items():
+                # Get metadata for this author
+                node_metadata = author_metadata_map.get(author)
+
+                # Add to network (edge_metadata not applicable for keyword extraction)
+                self.network_builder.add_post(
+                    author=author,
+                    entities=keywords,
+                    node_metadata=node_metadata,
+                    edge_metadata=None
+                )
+
+        except Exception as e:
+            error_msg = f"Error extracting keywords: {e}"
+            logger.error(error_msg)
+            self.processing_metadata['errors'].append(error_msg)
+            raise
+
+        # Step 3: Finalize network
+        logger.info("Finalizing network and calculating statistics")
+        self.graph = self.network_builder.get_graph()
+        self.statistics = self.network_builder.get_statistics()
+
+        # Add processing metadata to statistics
+        self.statistics['processing_metadata'] = self.processing_metadata
+
+        logger.info(f"Pipeline complete: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges")
+
+        return self.graph, self.statistics
+
     def _process_chunk(
         self,
         chunk,
@@ -239,7 +523,9 @@ class SocialNetworkPipeline:
         batch_size: int,
         detect_languages: bool,
         show_progress: bool,
-        chunk_num: int
+        chunk_num: int,
+        node_metadata_columns: Optional[List[str]] = None,
+        edge_metadata_columns: Optional[List[str]] = None
     ):
         """Process a single chunk of data."""
 
@@ -294,24 +580,35 @@ class SocialNetworkPipeline:
 
         logger.debug(f"Chunk {chunk_num}: Processing {len(texts)} posts")
 
-        # Step 2: Extract entities using NER
+        # Step 2: Extract entities using the configured extractor
         try:
-            entities_batch, languages = self.ner_engine.extract_entities_batch(
-                texts,
-                batch_size=batch_size,
-                show_progress=show_progress and chunk_num == 1,  # Only show progress for first chunk
-                detect_languages=detect_languages
-            )
+            # Use extractor interface - check if it's NER for special handling
+            if self.extraction_method == "ner":
+                # NER has special language detection support
+                entities_batch, languages = self.ner_engine.extract_entities_batch(
+                    texts,
+                    batch_size=batch_size,
+                    show_progress=show_progress and chunk_num == 1,  # Only show progress for first chunk
+                    detect_languages=detect_languages
+                )
+            else:
+                # Use generic extractor interface
+                entities_batch = self.extractor.extract_batch(
+                    texts,
+                    batch_size=batch_size,
+                    show_progress=show_progress and chunk_num == 1
+                )
+                languages = [None] * len(texts)  # No language detection for non-NER
 
             self.processing_metadata['entities_extracted'] += sum(len(ent) for ent in entities_batch)
 
         except Exception as e:
-            error_msg = f"NER extraction error in chunk {chunk_num}: {e}"
+            error_msg = f"Extraction error in chunk {chunk_num}: {e}"
             logger.error(error_msg)
             self.processing_metadata['errors'].append(error_msg)
             raise
 
-        # Step 2.5: Link entities to Wikipedia/Wikidata if enabled
+        # Step 2.5: Link entities to Wikipedia/Wikidata if enabled (NER only)
         if self.enable_entity_linking and self.entity_linker:
             try:
                 logger.debug(f"Chunk {chunk_num}: Linking entities to Wikipedia/Wikidata")
@@ -355,17 +652,51 @@ class SocialNetworkPipeline:
                 self.processing_metadata['errors'].append(error_msg)
                 # Continue with unlinked entities
 
-        # Step 3: Build network
+        # Step 3: Extract metadata if specified
+        node_metadata_list = []
+        edge_metadata_list = []
+
+        for i in range(len(authors)):
+            # Extract node metadata for this post
+            node_metadata = {}
+            if node_metadata_columns:
+                for col in node_metadata_columns:
+                    if col in chunk.columns:
+                        if hasattr(chunk[col], 'iloc'):
+                            val = chunk[col].iloc[i]
+                        else:
+                            val = chunk[col][i] if i < len(chunk[col]) else None
+                        node_metadata[col] = val
+
+            # Extract edge metadata for this post
+            edge_metadata = {}
+            if edge_metadata_columns:
+                for col in edge_metadata_columns:
+                    if col in chunk.columns:
+                        if hasattr(chunk[col], 'iloc'):
+                            val = chunk[col].iloc[i]
+                        else:
+                            val = chunk[col][i] if i < len(chunk[col]) else None
+                        edge_metadata[col] = val
+
+            node_metadata_list.append(node_metadata if node_metadata else None)
+            edge_metadata_list.append(edge_metadata if edge_metadata else None)
+
+        # Step 4: Build network
         for i, (author, entities) in enumerate(zip(authors, entities_batch)):
             try:
                 post_id = post_ids[i] if i < len(post_ids) else None
                 timestamp = timestamps[i] if i < len(timestamps) else None
+                node_metadata = node_metadata_list[i] if i < len(node_metadata_list) else None
+                edge_metadata = edge_metadata_list[i] if i < len(edge_metadata_list) else None
 
                 self.network_builder.add_post(
                     author=author,
                     entities=entities,
                     post_id=str(post_id) if post_id is not None else None,
-                    timestamp=str(timestamp) if timestamp is not None else None
+                    timestamp=str(timestamp) if timestamp is not None else None,
+                    node_metadata=node_metadata,
+                    edge_metadata=edge_metadata
                 )
 
                 self.processing_metadata['total_posts'] += 1

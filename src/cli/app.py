@@ -80,15 +80,46 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configuration")
 
-        # Model selection
-        model_name = st.selectbox(
-            "NER Model",
+        # Extraction method selection
+        st.subheader("🔍 Extraction Method")
+        extraction_method = st.selectbox(
+            "Choose Extraction Method",
             [
-                "Davlan/xlm-roberta-base-ner-hrl",
-                "Babelscape/wikineural-multilingual-ner"
+                "NER (Named Entities)",
+                "Hashtags",
+                "Mentions (@username)",
+                "URL Domains",
+                "Keywords (RAKE)",
+                "Exact Match"
             ],
-            help="Multilingual NER model for entity extraction"
+            help="Choose how to extract items from text to build the network"
         )
+
+        # Map display names to method identifiers
+        method_map = {
+            "NER (Named Entities)": "ner",
+            "Hashtags": "hashtag",
+            "Mentions (@username)": "mention",
+            "URL Domains": "domain",
+            "Keywords (RAKE)": "keyword",
+            "Exact Match": "exact"
+        }
+        extraction_method_id = method_map[extraction_method]
+
+        st.divider()
+
+        # Model selection (only for NER)
+        if extraction_method_id == "ner":
+            model_name = st.selectbox(
+                "NER Model",
+                [
+                    "Davlan/xlm-roberta-base-ner-hrl",
+                    "Babelscape/wikineural-multilingual-ner"
+                ],
+                help="Multilingual NER model for entity extraction"
+            )
+        else:
+            model_name = None  # Not needed for other methods
 
         # Confidence threshold
         confidence = st.slider(
@@ -122,21 +153,90 @@ def main():
 
         st.divider()
 
-        # Entity type selection
-        st.subheader("🏷️ Entity Types")
-        st.caption("Select entity types to extract:")
+        # Method-specific configuration
+        st.subheader("🛠️ Method Configuration")
+        extractor_config = {}
 
-        extract_persons = st.checkbox("✅ Persons (PER)", value=True)
-        extract_locations = st.checkbox("✅ Locations (LOC)", value=True)
-        extract_organizations = st.checkbox("✅ Organizations (ORG)", value=True)
+        if extraction_method_id == "ner":
+            # Entity type selection for NER
+            st.caption("Select entity types to extract:")
+            extract_persons = st.checkbox("✅ Persons (PER)", value=True)
+            extract_locations = st.checkbox("✅ Locations (LOC)", value=True)
+            extract_organizations = st.checkbox("✅ Organizations (ORG)", value=True)
 
-        entity_types_to_extract = []
-        if extract_persons:
-            entity_types_to_extract.extend(['PER', 'PERSON'])
-        if extract_locations:
-            entity_types_to_extract.extend(['LOC', 'LOCATION'])
-        if extract_organizations:
-            entity_types_to_extract.extend(['ORG', 'ORGANIZATION'])
+            entity_types_to_extract = []
+            if extract_persons:
+                entity_types_to_extract.extend(['PER', 'PERSON'])
+            if extract_locations:
+                entity_types_to_extract.extend(['LOC', 'LOCATION'])
+            if extract_organizations:
+                entity_types_to_extract.extend(['ORG', 'ORGANIZATION'])
+
+        elif extraction_method_id == "hashtag":
+            normalize_case = st.checkbox(
+                "Normalize case",
+                value=True,
+                help="Convert #Python to #python for consistency"
+            )
+            extractor_config['normalize_case'] = normalize_case
+            entity_types_to_extract = ['HASHTAG']
+
+        elif extraction_method_id == "mention":
+            normalize_case = st.checkbox(
+                "Normalize case",
+                value=True,
+                help="Convert @User to @user for consistency"
+            )
+            extractor_config['normalize_case'] = normalize_case
+            entity_types_to_extract = ['MENTION']
+
+        elif extraction_method_id == "domain":
+            strip_www = st.checkbox(
+                "Strip 'www.' prefix",
+                value=True,
+                help="Convert www.example.com to example.com"
+            )
+            extractor_config['strip_www'] = strip_www
+            entity_types_to_extract = ['DOMAIN']
+
+        elif extraction_method_id == "keyword":
+            min_keywords = st.slider(
+                "Min keywords per author",
+                min_value=1,
+                max_value=10,
+                value=5,
+                help="Minimum number of keywords to extract per author"
+            )
+            max_keywords = st.slider(
+                "Max keywords per author",
+                min_value=5,
+                max_value=50,
+                value=20,
+                help="Maximum number of keywords to extract per author"
+            )
+            language = st.selectbox(
+                "Language for stopwords",
+                ["english", "danish", "spanish", "french", "german", "italian", "portuguese"],
+                help="Language for stopword filtering"
+            )
+            max_phrase_length = st.slider(
+                "Max phrase length (words)",
+                min_value=1,
+                max_value=5,
+                value=3,
+                help="Maximum number of words in a keyword phrase"
+            )
+            extractor_config['min_keywords'] = min_keywords
+            extractor_config['max_keywords'] = max_keywords
+            extractor_config['language'] = language
+            extractor_config['max_phrase_length'] = max_phrase_length
+            entity_types_to_extract = ['KEYWORD']
+
+            st.info("ℹ️ Keyword extraction uses two-pass processing and may take longer")
+
+        elif extraction_method_id == "exact":
+            entity_types_to_extract = ['EXACT']
+            st.info("ℹ️ Exact match will use the text value as-is without extraction")
 
         st.divider()
 
@@ -355,6 +455,29 @@ def main():
         sample_display = preview_df[[author_col, text_col]].head(5)
         st.dataframe(sample_display, use_container_width=True)
 
+        # Metadata column selection
+        st.subheader("📊 Metadata Columns (Optional)")
+        st.caption("Attach additional columns as metadata to nodes and edges")
+
+        # Get available columns (excluding author and text)
+        available_metadata_cols = [col for col in preview_df.columns if col not in [author_col, text_col]]
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            node_metadata_cols = st.multiselect(
+                "Node Metadata Columns",
+                available_metadata_cols,
+                help="Attach these columns as attributes to author nodes (aggregated per author)"
+            )
+
+        with col2:
+            edge_metadata_cols = st.multiselect(
+                "Edge Metadata Columns",
+                available_metadata_cols,
+                help="Attach these columns as attributes to edges (per post/mention)"
+            )
+
         # Check for empty text values in preview
         empty_text_count = preview_df[text_col].isna().sum()
         total_preview = len(preview_df)
@@ -374,8 +497,8 @@ def main():
                     text_str = str(text)[:200]
                     st.text(f"{i}. {text_str}{'...' if len(str(text)) > 200 else ''}")
 
-        # Validation
-        if not entity_types_to_extract:
+        # Validation (only for NER method)
+        if extraction_method_id == "ner" and not entity_types_to_extract:
             st.warning("⚠️ Please select at least one entity type to extract in the sidebar")
             return
 
@@ -417,7 +540,11 @@ def main():
                 layout_iterations,
                 enable_entity_linking,
                 linking_confidence,
-                linking_cache
+                linking_cache,
+                extraction_method_id,
+                extractor_config,
+                node_metadata_cols,
+                edge_metadata_cols
             )
 
         # Display results if already processed
@@ -447,52 +574,77 @@ def process_data_with_pipeline(
     layout_iterations: int,
     enable_entity_linking: bool = False,
     linking_confidence: float = 0.7,
-    linking_cache: bool = True
+    linking_cache: bool = True,
+    extraction_method: str = "ner",
+    extractor_config: dict = None,
+    node_metadata_columns: list = None,
+    edge_metadata_columns: list = None
 ):
     """Process data using the integrated pipeline."""
+
+    if extractor_config is None:
+        extractor_config = {}
+    if node_metadata_columns is None:
+        node_metadata_columns = []
+    if edge_metadata_columns is None:
+        edge_metadata_columns = []
 
     start_time = time.time()
 
     try:
         # Create pipeline
-        spinner_msg = "🔄 Initializing pipeline and loading NER model..."
-        if enable_entity_linking:
+        method_names = {
+            "ner": "NER model",
+            "hashtag": "Hashtag extractor",
+            "mention": "Mention extractor",
+            "domain": "Domain extractor",
+            "keyword": "Keyword extractor (RAKE)",
+            "exact": "Exact match extractor"
+        }
+
+        spinner_msg = f"🔄 Initializing pipeline and loading {method_names.get(extraction_method, 'extractor')}..."
+        if extraction_method == "ner" and enable_entity_linking:
             spinner_msg = "🔄 Initializing pipeline and loading NER + Entity Linking models..."
 
         with st.spinner(spinner_msg):
-            # Configure entity linking
+            # Configure entity linking (only for NER)
             entity_linking_config = None
-            if enable_entity_linking:
+            if extraction_method == "ner" and enable_entity_linking:
                 entity_linking_config = {
                     'confidence_threshold': linking_confidence,
                     'enable_cache': linking_cache
                 }
 
+            # Initialize pipeline with extraction method
             pipeline = SocialNetworkPipeline(
-                model_name=model_name,
-                confidence_threshold=confidence,
-                enable_cache=enable_cache,
+                extraction_method=extraction_method,
+                extractor_config=extractor_config,
+                model_name=model_name if extraction_method == "ner" else None,
+                confidence_threshold=confidence if extraction_method == "ner" else None,
+                enable_cache=enable_cache if extraction_method == "ner" else False,
                 use_entity_resolver=use_entity_resolver,
                 create_author_edges=create_author_edges,
-                enable_entity_linking=enable_entity_linking,
+                enable_entity_linking=enable_entity_linking if extraction_method == "ner" else False,
                 entity_linking_config=entity_linking_config
             )
 
-            # Clear cache if requested
-            if st.session_state.get('clear_cache', False):
-                pipeline.ner_engine.clear_cache()
-                if enable_entity_linking and pipeline.entity_linker:
+            # Clear cache if requested (only for NER)
+            if st.session_state.get('clear_cache', False) and extraction_method == "ner":
+                if hasattr(pipeline, 'ner_engine') and pipeline.ner_engine:
+                    pipeline.ner_engine.clear_cache()
+                if enable_entity_linking and hasattr(pipeline, 'entity_linker') and pipeline.entity_linker:
                     pipeline.entity_linker.clear_cache()
                 st.session_state['clear_cache'] = False
                 st.info("🗑️ Cache cleared! Processing with fresh extraction...")
 
-        st.success("✅ Pipeline initialized and model loaded!")
+        st.success(f"✅ Pipeline initialized with {method_names.get(extraction_method, 'extractor')}!")
 
-        # Show cache stats
-        if enable_cache:
+        # Show cache stats (only for NER)
+        if enable_cache and extraction_method == "ner":
             try:
-                cache_stats = pipeline.ner_engine.get_cache_stats()
-                st.info(f"💾 Cache: {cache_stats['size']} entries, {cache_stats['size_bytes'] / 1024:.1f} KB")
+                if hasattr(pipeline, 'ner_engine') and pipeline.ner_engine:
+                    cache_stats = pipeline.ner_engine.get_cache_stats()
+                    st.info(f"💾 Cache: {cache_stats['size']} entries, {cache_stats['size_bytes'] / 1024:.1f} KB")
             except:
                 pass
 
@@ -541,7 +693,9 @@ def process_data_with_pipeline(
             batch_size=batch_size,
             detect_languages=detect_language,
             show_progress=False,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            node_metadata_columns=node_metadata_columns,
+            edge_metadata_columns=edge_metadata_columns
         )
 
         # Debug: Check what was processed

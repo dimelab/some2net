@@ -1,5 +1,5 @@
 """
-Tests for KeywordExtractor using TF-IDF.
+Tests for KeywordExtractor using RAKE (Rapid Automatic Keyword Extraction).
 """
 
 import pytest
@@ -16,22 +16,25 @@ class TestKeywordExtractorBasic:
         assert extractor.get_extractor_type() == 'keyword'
         assert extractor.min_keywords == 5
         assert extractor.max_keywords == 20
-        assert extractor.stop_words == 'english'
-        assert extractor.ngram_range == (1, 2)
+        assert extractor.language == 'english'
+        assert extractor.max_phrase_length == 3
+        assert extractor.min_phrase_length == 1
 
     def test_initialization_custom(self):
         """Test extractor initialization with custom parameters."""
         extractor = KeywordExtractor(
             min_keywords=3,
             max_keywords=10,
-            stop_words='none',
-            ngram_range=(1, 3)
+            language='danish',
+            max_phrase_length=4,
+            min_phrase_length=2
         )
 
         assert extractor.min_keywords == 3
         assert extractor.max_keywords == 10
-        assert extractor.stop_words is None
-        assert extractor.ngram_range == (1, 3)
+        assert extractor.language == 'danish'
+        assert extractor.max_phrase_length == 4
+        assert extractor.min_phrase_length == 2
 
     def test_collect_single_text(self):
         """Test collecting a single text for an author."""
@@ -156,12 +159,12 @@ class TestKeywordExtraction:
         )
         assert has_relevant
 
-    def test_bigram_extraction(self):
-        """Test that bigrams are extracted."""
+    def test_phrase_extraction(self):
+        """Test that multi-word phrases are extracted."""
         extractor = KeywordExtractor(
             min_keywords=3,
             max_keywords=10,
-            ngram_range=(1, 2)
+            max_phrase_length=3  # Allow up to 3-word phrases
         )
 
         extractor.collect_texts("@user1", [
@@ -173,12 +176,12 @@ class TestKeywordExtraction:
         keywords = extractor.extract_per_author("@user1")
         keyword_texts = [kw['text'] for kw in keywords]
 
-        # Should have bigrams (phrases with spaces)
-        bigrams = [kw for kw in keyword_texts if ' ' in kw]
-        assert len(bigrams) > 0
+        # RAKE should extract multi-word phrases
+        phrases = [kw for kw in keyword_texts if ' ' in kw]
+        assert len(phrases) > 0
 
-        # "machine learning" should likely be a top bigram
-        assert any('machine' in kw and 'learning' in kw for kw in bigrams)
+        # Should extract relevant phrases
+        assert any('machine learning' in kw or 'deep learning' in kw for kw in keyword_texts)
 
 
 class TestKeywordExtractorEdgeCases:
@@ -250,17 +253,18 @@ class TestKeywordExtractorConfig:
         extractor = KeywordExtractor(
             min_keywords=3,
             max_keywords=15,
-            stop_words='danish',
-            ngram_range=(1, 3)
+            language='danish',
+            max_phrase_length=4
         )
 
         config = extractor.get_config()
 
         assert config['type'] == 'keyword'
+        assert config['algorithm'] == 'RAKE'
         assert config['min_keywords'] == 3
         assert config['max_keywords'] == 15
-        assert config['stop_words'] == 'danish'
-        assert config['ngram_range'] == (1, 3)
+        assert config['language'] == 'danish'
+        assert config['max_phrase_length'] == 4
 
     def test_get_extractor_type(self):
         """Test get_extractor_type returns 'keyword'."""

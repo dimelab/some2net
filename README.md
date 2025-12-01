@@ -1,18 +1,20 @@
 # Social Network Analytics (SNA)
 
-A Python library for constructing social networks from social media posts using Named Entity Recognition (NER). Extract mentions of persons, locations, and organizations from multilingual text and generate network graphs for analysis in Gephi or other network analysis tools.
+A Python library for constructing social networks from social media posts using multiple extraction methods. Extract named entities, hashtags, mentions, domains, keywords, or exact matches from multilingual text and generate network graphs for analysis in Gephi or other network analysis tools.
 
 ## Features
 
+- 🔍 **Multiple Extraction Methods** - NER, hashtags, mentions, domains, keywords (RAKE), or exact match
 - 🌍 **Multilingual NER** - Supports 10+ languages including Danish and English
-- 📊 **Network Construction** - Automatic graph building from entity mentions
-- 🚀 **GPU Acceleration** - Fast processing with CUDA support
+- 📊 **Network Construction** - Automatic graph building with metadata support
+- 🚀 **GPU Acceleration** - Fast processing with CUDA support (for NER)
 - 💾 **Smart Caching** - Disk-based caching for faster reprocessing
 - 📈 **Interactive Visualization** - Front-end Force Atlas 2 layout with Sigma.js
 - 📁 **Multiple Export Formats** - GEXF (primary), GraphML, JSON, CSV
 - 🎯 **Batch Processing** - Memory-efficient handling of large datasets
 - 🌐 **Web Interface** - Easy-to-use Streamlit UI
 - 📝 **Language Detection** - Automatic per-post language identification
+- 🏷️ **Metadata Attachment** - Attach custom columns to nodes and edges
 
 ## Installation
 
@@ -70,10 +72,12 @@ streamlit run src/cli/app.py --server.address 0.0.0.0 --server.port 8080
 
 Then:
 1. Upload your CSV or NDJSON file
-2. Select author and text columns
-3. Choose entity types (PER, LOC, ORG)
-4. Click "Process Data"
-5. Download network in GEXF format
+2. **Choose extraction method** (NER, Hashtags, Mentions, Domains, Keywords, or Exact)
+3. Select author and text columns
+4. Configure method-specific options (e.g., entity types for NER, language for keywords)
+5. **(Optional)** Select metadata columns to attach to nodes/edges
+6. Click "Process Data"
+7. Download network in GEXF format
 
 ### Python API
 
@@ -121,6 +125,128 @@ export_gexf(graph, "output/network.gexf")
 # Get statistics
 stats = builder.get_statistics()
 print(f"Nodes: {stats['total_nodes']}, Edges: {stats['total_edges']}")
+```
+
+## Extraction Methods
+
+`some2net` supports multiple extraction methods to build networks beyond traditional NER. Choose the method that best fits your data and research goals:
+
+### 1. NER (Named Entity Recognition)
+Extract mentions of persons, locations, and organizations using multilingual transformer models.
+
+**Use case**: Traditional social network analysis, identifying who mentions which entities
+
+```python
+from src.core.pipeline import SocialNetworkPipeline
+
+pipeline = SocialNetworkPipeline(
+    extraction_method="ner",
+    extractor_config={}  # Uses default NER model
+)
+
+graph, stats = pipeline.process_file(
+    "data.csv",
+    author_column="author",
+    text_column="text"
+)
+```
+
+### 2. Hashtag Extraction
+Extract hashtags (#topic) from social media posts to analyze trending topics and communities.
+
+**Use case**: Topic-based networks, trending analysis, hashtag communities
+
+```python
+pipeline = SocialNetworkPipeline(
+    extraction_method="hashtag",
+    extractor_config={
+        'normalize_case': True  # #Python → #python
+    }
+)
+```
+
+**Example**: See `examples/example_hashtag_network.py`
+
+### 3. Mention Extraction
+Extract user mentions (@username) to map social interactions and reply networks.
+
+**Use case**: Reply networks, conversation analysis, user interaction patterns
+
+```python
+pipeline = SocialNetworkPipeline(
+    extraction_method="mention",
+    extractor_config={
+        'normalize_case': True  # @User → @user
+    }
+)
+```
+
+### 4. Domain Extraction
+Extract domains from URLs shared in posts to analyze information sources.
+
+**Use case**: Information diffusion, source credibility, media ecosystem analysis
+
+```python
+pipeline = SocialNetworkPipeline(
+    extraction_method="domain",
+    extractor_config={
+        'strip_www': True  # www.example.com → example.com
+    }
+)
+```
+
+### 5. Keyword Extraction (RAKE)
+Extract 5-20 meaningful keywords per author using RAKE (Rapid Automatic Keyword Extraction).
+
+**Use case**: Topic modeling, author expertise, content similarity
+
+```python
+pipeline = SocialNetworkPipeline(
+    extraction_method="keyword",
+    extractor_config={
+        'min_keywords': 5,
+        'max_keywords': 20,
+        'language': 'english',
+        'max_phrase_length': 3
+    }
+)
+```
+
+**Example**: See `examples/example_keyword_network.py`
+
+**Note**: Uses two-pass processing (slower but more accurate)
+
+### 6. Exact Match
+Use the raw text value without extraction (for pre-categorized data).
+
+**Use case**: Sentiment categories, topic labels, pre-classified content
+
+```python
+pipeline = SocialNetworkPipeline(
+    extraction_method="exact",
+    extractor_config={}
+)
+```
+
+## Metadata Support
+
+Attach additional columns from your data as metadata to nodes and edges:
+
+```python
+graph, stats = pipeline.process_file(
+    "data.csv",
+    author_column="author",
+    text_column="text",
+    node_metadata_columns=['platform', 'follower_count'],  # Author attributes
+    edge_metadata_columns=['timestamp', 'sentiment']       # Per-mention attributes
+)
+
+# Access metadata in the graph
+for node in graph.nodes():
+    print(graph.nodes[node].get('platform'))
+
+for edge in graph.edges():
+    print(graph.edges[edge].get('timestamp'))
 ```
 
 ## Input Data Format
