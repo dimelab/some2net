@@ -16,18 +16,24 @@ try:
     from rake_nltk import Rake
     # Download required NLTK data if not available
     import nltk
-    try:
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        print("Downloading NLTK stopwords...")
-        nltk.download('stopwords', quiet=True)
-        print("✅ NLTK stopwords downloaded")
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        print("Downloading NLTK punkt tokenizer...")
-        nltk.download('punkt', quiet=True)
-        print("✅ NLTK punkt downloaded")
+
+    # List of required NLTK resources for RAKE
+    required_resources = [
+        ('corpora/stopwords', 'stopwords'),
+        ('tokenizers/punkt', 'punkt'),
+        ('tokenizers/punkt_tab', 'punkt_tab')
+    ]
+
+    for resource_path, resource_name in required_resources:
+        try:
+            nltk.data.find(resource_path)
+        except LookupError:
+            print(f"Downloading NLTK {resource_name}...")
+            try:
+                nltk.download(resource_name, quiet=True)
+                print(f"✅ NLTK {resource_name} downloaded")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not download {resource_name}: {e}")
 except ImportError:
     Rake = None
 
