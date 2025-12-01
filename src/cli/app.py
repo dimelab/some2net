@@ -121,27 +121,33 @@ def main():
         else:
             model_name = None  # Not needed for other methods
 
-        # Confidence threshold
-        confidence = st.slider(
-            "Confidence Threshold",
-            min_value=0.5,
-            max_value=1.0,
-            value=0.85,
-            step=0.05,
-            help="Minimum confidence score for extracted entities"
-        )
+        # NER-specific settings (only show for NER method)
+        if extraction_method_id == "ner":
+            # Confidence threshold
+            confidence = st.slider(
+                "Confidence Threshold",
+                min_value=0.5,
+                max_value=1.0,
+                value=0.85,
+                step=0.05,
+                help="Minimum confidence score for extracted entities"
+            )
 
-        # Batch size
-        batch_size = st.number_input(
-            "Batch Size",
-            min_value=8,
-            max_value=128,
-            value=32,
-            step=8,
-            help="Number of texts to process at once (higher = faster with more GPU memory)"
-        )
+            # Batch size
+            batch_size = st.number_input(
+                "Batch Size",
+                min_value=8,
+                max_value=128,
+                value=32,
+                step=8,
+                help="Number of texts to process at once (higher = faster with more GPU memory)"
+            )
+        else:
+            # Default values for non-NER methods
+            confidence = 0.85
+            batch_size = 32
 
-        # Chunk size
+        # Chunk size (applies to all methods)
         chunksize = st.number_input(
             "Chunk Size",
             min_value=1000,
@@ -240,59 +246,70 @@ def main():
 
         st.divider()
 
-        # Advanced options
+        # Advanced options (NER-specific and general)
         with st.expander("🔧 Advanced Options"):
-            enable_cache = st.checkbox("Enable NER Cache", value=True,
-                                      help="Cache NER results to speed up reprocessing")
-            detect_language = st.checkbox("Detect Languages", value=True,
-                                         help="Automatically detect language of each post")
-            create_author_edges = st.checkbox("Author-to-Author Edges", value=True,
-                                             help="Create edges when authors mention each other")
-            use_entity_resolver = st.checkbox("Entity Deduplication", value=True,
-                                             help="Deduplicate entities (case-insensitive matching)")
+            # NER-specific options
+            if extraction_method_id == "ner":
+                enable_cache = st.checkbox("Enable NER Cache", value=True,
+                                          help="Cache NER results to speed up reprocessing")
+                detect_language = st.checkbox("Detect Languages", value=True,
+                                             help="Automatically detect language of each post")
+                create_author_edges = st.checkbox("Author-to-Author Edges", value=True,
+                                                 help="Create edges when authors mention each other")
+                use_entity_resolver = st.checkbox("Entity Deduplication", value=True,
+                                                 help="Deduplicate entities (case-insensitive matching)")
 
-            st.divider()
+                st.divider()
 
-            # Entity Linking Options (Phase 2)
-            st.subheader("🔗 Entity Linking (Phase 2)")
-            enable_entity_linking = st.checkbox(
-                "Enable Wikipedia/Wikidata Linking",
-                value=False,
-                help="Link entities to Wikipedia/Wikidata for enhanced cross-language resolution"
-            )
-
-            if enable_entity_linking:
-                st.info("ℹ️ Entity linking will connect entities like 'København', 'Copenhagen', and 'Copenhague' to the same Wikipedia/Wikidata entry (Q1748)")
-
-                linking_confidence = st.slider(
-                    "Linking Confidence Threshold",
-                    min_value=0.5,
-                    max_value=1.0,
-                    value=0.7,
-                    step=0.05,
-                    help="Minimum confidence for entity linking"
+                # Entity Linking Options (Phase 2)
+                st.subheader("🔗 Entity Linking (Phase 2)")
+                enable_entity_linking = st.checkbox(
+                    "Enable Wikipedia/Wikidata Linking",
+                    value=False,
+                    help="Link entities to Wikipedia/Wikidata for enhanced cross-language resolution"
                 )
 
-                linking_cache = st.checkbox(
-                    "Cache Linking Results",
-                    value=True,
-                    help="Cache entity linking results for faster reprocessing"
-                )
+                if enable_entity_linking:
+                    st.info("ℹ️ Entity linking will connect entities like 'København', 'Copenhagen', and 'Copenhague' to the same Wikipedia/Wikidata entry (Q1748)")
+
+                    linking_confidence = st.slider(
+                        "Linking Confidence Threshold",
+                        min_value=0.5,
+                        max_value=1.0,
+                        value=0.7,
+                        step=0.05,
+                        help="Minimum confidence for entity linking"
+                    )
+
+                    linking_cache = st.checkbox(
+                        "Cache Linking Results",
+                        value=True,
+                        help="Cache entity linking results for faster reprocessing"
+                    )
+                else:
+                    linking_confidence = 0.7
+                    linking_cache = True
+
+                st.divider()
+
+                if enable_cache:
+                    if st.button("🗑️ Clear NER Cache", use_container_width=True):
+                        st.session_state['clear_cache'] = True
+                        st.warning("⚠️ Cache will be cleared on next processing. Click 'Process Data' to reprocess with updated settings.")
             else:
+                # Default values for non-NER methods
+                enable_cache = False
+                detect_language = False
+                create_author_edges = False
+                use_entity_resolver = True  # Keep this enabled for other methods
+                enable_entity_linking = False
                 linking_confidence = 0.7
                 linking_cache = True
 
+            # General visualization option (applies to all methods)
             st.divider()
-
             layout_iterations = st.slider("Visualization Quality", 50, 200, 100, 10,
                                          help="Force Atlas iterations (higher = better layout, slower)")
-
-            st.divider()
-
-            if enable_cache:
-                if st.button("🗑️ Clear NER Cache", use_container_width=True):
-                    st.session_state['clear_cache'] = True
-                    st.warning("⚠️ Cache will be cleared on next processing. Click 'Process Data' to reprocess with updated settings.")
 
     # Main content area
     st.header("1️⃣ Upload Data")
@@ -879,13 +896,13 @@ def display_results(graph, stats, layout_iterations, enable_entity_linking=False
             if show_giant_component:
                 # Get weakly connected components (for directed graphs)
                 if graph.is_directed():
-                    components = list(nx.weakly_connected_components(graph))
+                    connected_components = list(nx.weakly_connected_components(graph))
                 else:
-                    components = list(nx.connected_components(graph))
+                    connected_components = list(nx.connected_components(graph))
 
-                if components:
+                if connected_components:
                     # Get the largest component
-                    giant_component = max(components, key=len)
+                    giant_component = max(connected_components, key=len)
                     display_graph = graph.subgraph(giant_component).copy()
 
                     st.info(f"🔍 Showing giant component: {len(giant_component):,} nodes "
