@@ -409,7 +409,7 @@ def main():
 
             # Try to find author column (supports nested fields like data.user.unique_id or datauserunique_id)
             author_default_index = 0
-            author_patterns = ['author', 'username', 'user', 'unique_id', 'userid', 'user_id', 'nickname']
+            author_patterns = ['author', 'username', 'user', 'unique_id', 'userid', 'user_id', 'nickname', 'datauserunique_id']
             for col_idx, col_name in enumerate(preview_df.columns):
                 col_lower = col_name.lower()
                 # Check if any pattern appears in the column name
@@ -424,7 +424,7 @@ def main():
 
             # Try to find text column (supports nested fields like data.text or datatext)
             text_default_index = 0
-            text_patterns = ['text', 'body', 'content', 'message', 'post', 'desc', 'description', 'comment']
+            text_patterns = ['text', 'body', 'content', 'message', 'post', 'desc', 'description', 'comment', 'datatext']
             for col_idx, col_name in enumerate(preview_df.columns):
                 col_lower = col_name.lower()
                 # Check if any pattern appears in the column name

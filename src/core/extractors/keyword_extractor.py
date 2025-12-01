@@ -10,14 +10,28 @@ from collections import defaultdict
 import logging
 from tqdm import tqdm
 
+logger = logging.getLogger(__name__)
+
 try:
     from rake_nltk import Rake
+    # Download required NLTK data if not available
+    import nltk
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        print("Downloading NLTK stopwords...")
+        nltk.download('stopwords', quiet=True)
+        print("✅ NLTK stopwords downloaded")
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        print("Downloading NLTK punkt tokenizer...")
+        nltk.download('punkt', quiet=True)
+        print("✅ NLTK punkt downloaded")
 except ImportError:
     Rake = None
 
 from .base_extractor import BaseExtractor
-
-logger = logging.getLogger(__name__)
 
 
 class KeywordExtractor(BaseExtractor):
