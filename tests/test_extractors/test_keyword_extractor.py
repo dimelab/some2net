@@ -248,29 +248,214 @@ class TestKeywordExtractorEdgeCases:
 class TestKeywordExtractorConfig:
     """Test configuration and metadata methods."""
 
-    def test_get_config(self):
-        """Test get_config returns correct configuration."""
+    def test_get_config_rake(self):
+        """Test get_config returns correct configuration for RAKE method."""
         extractor = KeywordExtractor(
             min_keywords=3,
             max_keywords=15,
             language='danish',
-            max_phrase_length=4
+            max_phrase_length=4,
+            method='rake'
         )
 
         config = extractor.get_config()
 
         assert config['type'] == 'keyword'
-        assert config['algorithm'] == 'RAKE'
+        assert config['method'] == 'rake'
+        assert 'RAKE' in config['algorithm']
         assert config['min_keywords'] == 3
         assert config['max_keywords'] == 15
         assert config['language'] == 'danish'
         assert config['max_phrase_length'] == 4
+
+    def test_get_config_tfidf(self):
+        """Test get_config returns correct configuration for TF-IDF method."""
+        extractor = KeywordExtractor(
+            min_keywords=5,
+            max_keywords=10,
+            language='english',
+            method='tfidf'
+        )
+
+        config = extractor.get_config()
+
+        assert config['type'] == 'keyword'
+        assert config['method'] == 'tfidf'
+        assert config['algorithm'] == 'TF-IDF'
+        assert config['min_keywords'] == 5
+        assert config['max_keywords'] == 10
 
     def test_get_extractor_type(self):
         """Test get_extractor_type returns 'keyword'."""
         extractor = KeywordExtractor()
 
         assert extractor.get_extractor_type() == 'keyword'
+
+    def test_invalid_method(self):
+        """Test that invalid method raises ValueError."""
+        with pytest.raises(ValueError):
+            KeywordExtractor(method='invalid_method')
+
+
+class TestTfidfMethod:
+    """Test TF-IDF extraction method."""
+
+    def test_tfidf_basic_extraction(self):
+        """Test basic TF-IDF keyword extraction."""
+        extractor = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=5,
+            method='tfidf'
+        )
+
+        texts = [
+            "machine learning and artificial intelligence",
+            "deep learning neural networks for computer vision",
+            "machine learning algorithms for data analysis"
+        ]
+        extractor.collect_texts("@user1", texts)
+
+        keywords = extractor.extract_per_author("@user1")
+
+        assert isinstance(keywords, list)
+        assert len(keywords) >= 3
+        assert len(keywords) <= 5
+
+        # Check keyword structure
+        for kw in keywords:
+            assert 'text' in kw
+            assert 'type' in kw
+            assert 'score' in kw
+            assert kw['type'] == 'KEYWORD'
+            assert 0 <= kw['score'] <= 1
+
+    def test_tfidf_returns_single_words(self):
+        """Test that TF-IDF method returns individual words, not phrases."""
+        extractor = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=10,
+            method='tfidf'
+        )
+
+        extractor.collect_texts("@user1", [
+            "machine learning is amazing",
+            "deep learning neural networks",
+            "machine learning algorithms"
+        ])
+
+        keywords = extractor.extract_per_author("@user1")
+        keyword_texts = [kw['text'] for kw in keywords]
+
+        # TF-IDF should extract single words, not phrases
+        single_word_keywords = [kw for kw in keyword_texts if ' ' not in kw]
+        assert len(single_word_keywords) == len(keyword_texts)
+
+    def test_tfidf_multiple_authors(self):
+        """Test TF-IDF extraction with multiple authors."""
+        extractor = KeywordExtractor(
+            min_keywords=2,
+            max_keywords=5,
+            method='tfidf'
+        )
+
+        extractor.collect_texts("@user1", [
+            "machine learning data science",
+            "artificial intelligence neural networks"
+        ])
+        extractor.collect_texts("@user2", [
+            "climate change environmental protection",
+            "renewable energy sustainable development"
+        ])
+
+        results = extractor.extract_all_authors(show_progress=False)
+
+        assert len(results) == 2
+        assert '@user1' in results
+        assert '@user2' in results
+
+        # Each user should have keywords
+        assert len(results['@user1']) >= 2
+        assert len(results['@user2']) >= 2
+
+    def test_tfidf_distinctive_keywords(self):
+        """Test that TF-IDF boosts distinctive keywords."""
+        extractor = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=5,
+            method='tfidf'
+        )
+
+        # User1 talks about programming
+        extractor.collect_texts("@user1", [
+            "python programming language",
+            "python libraries data science",
+            "python programming best practices"
+        ])
+
+        # User2 talks about climate
+        extractor.collect_texts("@user2", [
+            "climate change effects",
+            "climate policy recommendations",
+            "climate action required"
+        ])
+
+        results = extractor.extract_all_authors(show_progress=False)
+
+        user1_keywords = [kw['text'].lower() for kw in results['@user1']]
+        user2_keywords = [kw['text'].lower() for kw in results['@user2']]
+
+        # Python should be distinctive for user1
+        assert 'python' in user1_keywords or 'programming' in user1_keywords
+
+        # Climate should be distinctive for user2
+        assert 'climate' in user2_keywords
+
+
+class TestMethodComparison:
+    """Test comparison between RAKE and TF-IDF methods."""
+
+    def test_rake_extracts_phrases(self):
+        """Test that RAKE can extract multi-word phrases."""
+        extractor = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=10,
+            method='rake',
+            max_phrase_length=3
+        )
+
+        extractor.collect_texts("@user1", [
+            "machine learning algorithms",
+            "deep learning neural networks",
+            "machine learning applications"
+        ])
+
+        keywords = extractor.extract_per_author("@user1")
+        keyword_texts = [kw['text'] for kw in keywords]
+
+        # RAKE should extract some multi-word phrases
+        phrases = [kw for kw in keyword_texts if ' ' in kw]
+        assert len(phrases) > 0
+
+    def test_tfidf_extracts_single_words(self):
+        """Test that TF-IDF extracts only single words."""
+        extractor = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=10,
+            method='tfidf'
+        )
+
+        extractor.collect_texts("@user1", [
+            "machine learning algorithms",
+            "deep learning neural networks",
+            "machine learning applications"
+        ])
+
+        keywords = extractor.extract_per_author("@user1")
+        keyword_texts = [kw['text'] for kw in keywords]
+
+        # TF-IDF should only extract single words
+        single_words = [kw for kw in keyword_texts if ' ' not in kw]
+        assert len(single_words) == len(keyword_texts)
 
 
 # Run tests

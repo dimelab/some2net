@@ -48,7 +48,7 @@ def main():
     """Run keyword network extraction example."""
 
     print("=" * 70)
-    print("KEYWORD NETWORK EXTRACTION EXAMPLE (RAKE)")
+    print("KEYWORD NETWORK EXTRACTION EXAMPLE")
     print("=" * 70)
 
     # Step 1: Create sample data
@@ -57,16 +57,37 @@ def main():
     print(f"   Created: {filepath}")
 
     # Step 2: Initialize pipeline with keyword extraction
-    print("\n2. Initializing pipeline with RAKE keyword extractor...")
-    pipeline = SocialNetworkPipeline(
-        extraction_method="keyword",
-        extractor_config={
+    print("\n2. Initializing pipeline with keyword extractor...")
+    print("\n   Available methods:")
+    print("   - 'rake': RAKE algorithm (extracts multi-word phrases)")
+    print("   - 'tfidf': Standard TF-IDF (extracts single words)")
+
+    # You can choose between 'rake' and 'tfidf' methods
+    method = 'rake'  # Change to 'tfidf' for TF-IDF method
+
+    print(f"\n   Using method: {method}")
+
+    if method == 'rake':
+        extractor_config = {
+            'method': 'rake',
             'min_keywords': 3,          # Extract at least 3 keywords per author
             'max_keywords': 10,         # Extract at most 10 keywords per author
             'language': 'english',      # Use English stopwords
-            'max_phrase_length': 3,     # Up to 3-word phrases
-            'min_phrase_length': 1,     # Single words allowed
+            'max_phrase_length': 3,     # Up to 3-word phrases (RAKE only)
+            'min_phrase_length': 1,     # Single words allowed (RAKE only)
+            'use_tfidf': True,          # Apply TF-IDF weighting to RAKE scores
         }
+    else:  # tfidf
+        extractor_config = {
+            'method': 'tfidf',
+            'min_keywords': 3,          # Extract at least 3 keywords per author
+            'max_keywords': 10,         # Extract at most 10 keywords per author
+            'language': 'english',      # Use English stopwords
+        }
+
+    pipeline = SocialNetworkPipeline(
+        extraction_method="keyword",
+        extractor_config=extractor_config
     )
     print("   Pipeline initialized!")
 
