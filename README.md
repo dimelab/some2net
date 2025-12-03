@@ -70,6 +70,8 @@ streamlit run src/cli/app.py --server.port 8080
 streamlit run src/cli/app.py --server.address 0.0.0.0 --server.port 8080
 ```
 
+**Configuration**: The app is configured to handle files up to 1GB via `.streamlit/config.toml`. If you need larger files, edit this file and increase `maxUploadSize`.
+
 Then:
 1. Upload your CSV or NDJSON file
 2. **Choose extraction method** (NER, Hashtags, Mentions, Domains, Keywords, or Exact)

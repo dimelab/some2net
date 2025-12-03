@@ -21,12 +21,13 @@ class NetworkVisualizer:
             'organization': '#d62728' # Red (alias)
         }
 
-    def export_for_sigma(self, graph: nx.DiGraph) -> Dict:
+    def export_for_sigma(self, graph: nx.DiGraph, strip_metadata: bool = True) -> Dict:
         """
         Export graph data in Sigma.js format for front-end visualization.
 
         Args:
             graph: NetworkX DiGraph to export
+            strip_metadata: If True, only export essential fields (reduces size)
 
         Returns:
             Dictionary with nodes and edges arrays for Sigma.js
@@ -44,7 +45,7 @@ class NetworkVisualizer:
             # This compresses large differences while keeping visual distinction
             node_size = 3 + math.log1p(mention_count) * 1.5
 
-            nodes.append({
+            node_data = {
                 'key': str(node_id),
                 'label': data.get('label', str(node_id)),
                 'size': node_size,
@@ -52,17 +53,51 @@ class NetworkVisualizer:
                 'type': node_type,
                 'mention_count': data.get('mention_count', 0),
                 'post_count': data.get('post_count', 0)
-            })
+            }
+
+            # Add optional metadata if not stripping (can make JSON very large)
+            if not strip_metadata:
+                # Add any meta_ prefixed attributes
+                for key, value in data.items():
+                    if key.startswith('meta_') and key not in node_data:
+                        # Truncate long strings to avoid huge JSON
+                        if isinstance(value, str) and len(value) > 200:
+                            node_data[key] = value[:200] + '...'
+                        elif isinstance(value, list):
+                            # Truncate long lists
+                            node_data[key] = value[:10] if len(value) > 10 else value
+                        else:
+                            node_data[key] = value
+
+            nodes.append(node_data)
 
         # Export edges
         for i, (u, v, data) in enumerate(graph.edges(data=True)):
-            edges.append({
+            edge_data = {
                 'key': f'edge_{i}',
                 'source': str(u),
                 'target': str(v),
                 'weight': data.get('weight', 1),
                 'type': data.get('entity_type', 'default')
-            })
+            }
+
+            # Add optional metadata if not stripping
+            if not strip_metadata:
+                for key, value in data.items():
+                    if key.startswith('meta_') and key not in edge_data:
+                        # Truncate long strings
+                        if isinstance(value, str) and len(value) > 200:
+                            edge_data[key] = value[:200] + '...'
+                        elif isinstance(value, list):
+                            # Truncate long lists, join if strings
+                            if len(value) > 5:
+                                edge_data[key] = value[:5]
+                            else:
+                                edge_data[key] = value
+                        else:
+                            edge_data[key] = value
+
+            edges.append(edge_data)
 
         return {
             'nodes': nodes,

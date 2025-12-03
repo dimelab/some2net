@@ -923,8 +923,25 @@ def display_results(graph, stats, layout_iterations, enable_entity_linking=False
             # Export graph data for Sigma.js
             graph_data = viz.export_for_sigma(display_graph)
 
+            # Check JSON size and reduce further if needed (avoid 413 error)
+            graph_json = json.dumps(graph_data)
+            json_size_mb = len(graph_json.encode('utf-8')) / (1024 * 1024)
+
+            # If JSON is too large (> 10MB), reduce further
+            if json_size_mb > 10 and display_graph.number_of_nodes() > 100:
+                st.warning(f"⚠️ Visualization data is large ({json_size_mb:.1f}MB). Reducing to top 200 nodes to avoid browser issues.")
+                degree_dict = dict(display_graph.degree())
+                top_nodes = sorted(degree_dict.items(), key=lambda x: x[1], reverse=True)[:200]
+                top_node_ids = [n[0] for n in top_nodes]
+                display_graph = display_graph.subgraph(top_node_ids).copy()
+
+                # Re-export with smaller graph
+                graph_data = viz.export_for_sigma(display_graph)
+                graph_json = json.dumps(graph_data)
+                json_size_mb = len(graph_json.encode('utf-8')) / (1024 * 1024)
+
             # Debug info
-            st.info(f"📊 Graph data: {len(graph_data.get('nodes', []))} nodes, {len(graph_data.get('edges', []))} edges")
+            st.info(f"📊 Graph data: {len(graph_data.get('nodes', []))} nodes, {len(graph_data.get('edges', []))} edges (Size: {json_size_mb:.1f}MB)")
 
             # Load HTML template
             template_path = Path(__file__).parent / 'templates' / 'sigma_viewer.html'
@@ -934,7 +951,7 @@ def display_results(graph, stats, layout_iterations, enable_entity_linking=False
             # Inject graph data
             html_content = html_template.replace(
                 '{{GRAPH_DATA}}',
-                json.dumps(graph_data)
+                graph_json
             )
 
             # Display in Streamlit
