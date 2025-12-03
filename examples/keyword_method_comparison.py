@@ -34,8 +34,22 @@ def main():
         "Global warming affects weather patterns and sea levels"
     ]
 
-    # Test both methods
-    for method in ['rake', 'tfidf']:
+    # Test both methods (skip RAKE if not installed)
+    methods_to_test = []
+
+    # Check if RAKE is available
+    try:
+        test_extractor = KeywordExtractor(method='rake', min_keywords=1, max_keywords=1)
+        methods_to_test.append('rake')
+        del test_extractor
+    except ImportError:
+        print("\nNote: RAKE method skipped (rake-nltk not installed)")
+        print("Install with: pip install rake-nltk\n")
+
+    # TF-IDF is always available
+    methods_to_test.append('tfidf')
+
+    for method in methods_to_test:
         print(f"\n{'=' * 70}")
         print(f"METHOD: {method.upper()}")
         print(f"{'=' * 70}")

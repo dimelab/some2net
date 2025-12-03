@@ -207,6 +207,17 @@ def main():
             entity_types_to_extract = ['DOMAIN']
 
         elif extraction_method_id == "keyword":
+            # Method selection
+            keyword_method = st.radio(
+                "Extraction Method",
+                options=["rake", "tfidf"],
+                format_func=lambda x: {
+                    "rake": "🔤 RAKE (multi-word phrases)",
+                    "tfidf": "📊 TF-IDF (single words)"
+                }[x],
+                help="RAKE: Extracts meaningful phrases (e.g., 'machine learning')\nTF-IDF: Extracts individual words with statistical weighting"
+            )
+
             min_keywords = st.slider(
                 "Min keywords per author",
                 min_value=1,
@@ -226,20 +237,35 @@ def main():
                 ["english", "danish", "spanish", "french", "german", "italian", "portuguese"],
                 help="Language for stopword filtering"
             )
-            max_phrase_length = st.slider(
-                "Max phrase length (words)",
-                min_value=1,
-                max_value=5,
-                value=3,
-                help="Maximum number of words in a keyword phrase"
-            )
+
+            # Method-specific options
+            if keyword_method == "rake":
+                max_phrase_length = st.slider(
+                    "Max phrase length (words)",
+                    min_value=1,
+                    max_value=5,
+                    value=3,
+                    help="Maximum number of words in a keyword phrase (RAKE only)"
+                )
+                use_tfidf_weighting = st.checkbox(
+                    "Apply TF-IDF weighting",
+                    value=True,
+                    help="Weight RAKE keywords by TF-IDF for better distinctiveness"
+                )
+                extractor_config['max_phrase_length'] = max_phrase_length
+                extractor_config['use_tfidf'] = use_tfidf_weighting
+
+            extractor_config['method'] = keyword_method
             extractor_config['min_keywords'] = min_keywords
             extractor_config['max_keywords'] = max_keywords
             extractor_config['language'] = language
-            extractor_config['max_phrase_length'] = max_phrase_length
             entity_types_to_extract = ['KEYWORD']
 
-            st.info("ℹ️ Keyword extraction uses two-pass processing and may take longer")
+            # Show appropriate info message
+            if keyword_method == "rake":
+                st.info("ℹ️ RAKE extracts multi-word phrases (requires rake-nltk). Two-pass processing may take longer.")
+            else:
+                st.info("ℹ️ TF-IDF extracts individual words weighted by statistical importance. Two-pass processing may take longer.")
 
         elif extraction_method_id == "exact":
             entity_types_to_extract = ['EXACT']
