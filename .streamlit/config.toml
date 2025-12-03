@@ -1,17 +1,23 @@
 [server]
 # Maximum file upload size in MB
-# Default is 200MB, increase to 1000MB (1GB) for large datasets
-maxUploadSize = 1000
+# Default is 200MB, increase to 2000MB (2GB) for large datasets
+maxUploadSize = 2000
 
 # Maximum message size in MB (for websocket communication)
 # Default is 200MB, increase to match upload size
-maxMessageSize = 1000
+maxMessageSize = 2000
 
 # Enable CORS for local development
 enableCORS = false
 
 # Enable XSRF protection
 enableXsrfProtection = true
+
+# Server port
+port = 8501
+
+# Server address
+headless = true
 
 [browser]
 # Automatically open browser on startup

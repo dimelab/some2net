@@ -322,12 +322,22 @@ def main():
     )
 
     if uploaded_file is not None:
-        # Clear previous results when new file is uploaded
+        # Generate file identifier
+        current_file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+
+        # Clear previous results ONLY when a DIFFERENT file is uploaded
         # This prevents session state from becoming too large (causes 413 errors on subsequent uploads)
-        if 'graph' in st.session_state and st.session_state.graph is not None:
-            st.session_state.graph = None
-            st.session_state.stats = None
-            st.session_state.processed = False
+        # But allows viewing results after processing the same file
+        if 'current_file_id' not in st.session_state:
+            st.session_state.current_file_id = None
+
+        if st.session_state.current_file_id != current_file_id:
+            # Different file - clear old results
+            if 'graph' in st.session_state and st.session_state.graph is not None:
+                st.session_state.graph = None
+                st.session_state.stats = None
+                st.session_state.processed = False
+            st.session_state.current_file_id = current_file_id
 
         # Save uploaded file temporarily
         temp_dir = Path("/tmp/sna_uploads")
@@ -342,9 +352,47 @@ def main():
 
         # Preview data
         st.subheader("📊 Data Preview")
+
+        # CSV parsing options (for malformed files)
+        csv_error_handling = None
+        if file_type == 'csv':
+            with st.expander("⚙️ CSV Parsing Options (click if you see errors)"):
+                st.markdown("""
+                If your CSV has issues (inconsistent columns, quotes, etc.), try these options:
+                """)
+                csv_error_handling = st.radio(
+                    "Error Handling Strategy",
+                    options=['default', 'skip_bad_lines', 'fill_missing'],
+                    index=0,
+                    help="""
+                    - **default**: Strict parsing (fails on malformed rows)
+                    - **skip_bad_lines**: Skip rows with wrong number of columns
+                    - **fill_missing**: Fill missing columns with empty values
+                    """
+                )
+
         try:
             if file_type == 'csv':
-                preview_df = pd.read_csv(temp_path, nrows=10)
+                # Try different parsing strategies based on user selection
+                if csv_error_handling == 'skip_bad_lines':
+                    preview_df = pd.read_csv(
+                        temp_path,
+                        nrows=10,
+                        on_bad_lines='skip',  # Skip malformed rows
+                        engine='python'
+                    )
+                    st.info("ℹ️ Using 'skip_bad_lines' mode - malformed rows will be skipped during processing")
+                elif csv_error_handling == 'fill_missing':
+                    preview_df = pd.read_csv(
+                        temp_path,
+                        nrows=10,
+                        on_bad_lines='warn',  # Warn but continue
+                        engine='python'
+                    )
+                    st.info("ℹ️ Using 'fill_missing' mode - missing columns will be filled with NaN")
+                else:
+                    # Default strict parsing
+                    preview_df = pd.read_csv(temp_path, nrows=10)
             else:
                 # Use json_normalize to flatten nested structures (matches actual loading)
                 import json
@@ -399,7 +447,43 @@ def main():
                 st.metric("📊 Columns", len(preview_df.columns))
 
         except Exception as e:
-            st.error(f"❌ Error reading file: {e}")
+            error_msg = str(e)
+            st.error(f"❌ Error reading file: {error_msg}")
+
+            # Provide specific help for common CSV errors
+            if "Expected" in error_msg and "fields" in error_msg and "saw" in error_msg:
+                st.warning("""
+                **CSV Parsing Error Detected!**
+
+                Your CSV file has inconsistent column counts (some rows have more/fewer columns than the header).
+
+                **Solutions:**
+
+                1. **Try the parsing options above** ⬆️
+                   - Expand "⚙️ CSV Parsing Options"
+                   - Select "skip_bad_lines" or "fill_missing"
+
+                2. **Fix your CSV file:**
+                   - Open in Excel and re-save as CSV UTF-8
+                   - Use a CSV validator tool
+                   - Check for unescaped commas or quotes in your data
+
+                3. **Use NDJSON format instead:**
+                   - More robust for messy data
+                   - Each line is independent
+                """)
+
+                # Offer to try with error handling automatically
+                st.info("""
+                💡 **Tip:** The processing will automatically skip bad rows using the DataLoader's built-in error handling.
+                You can proceed even if the preview fails!
+                """)
+
+                # Store error flag
+                st.session_state['csv_parse_error'] = True
+            else:
+                st.info("Try using NDJSON format if CSV continues to have issues.")
+
             return
 
         # Column selection
