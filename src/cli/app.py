@@ -322,6 +322,13 @@ def main():
     )
 
     if uploaded_file is not None:
+        # Clear previous results when new file is uploaded
+        # This prevents session state from becoming too large (causes 413 errors on subsequent uploads)
+        if 'graph' in st.session_state and st.session_state.graph is not None:
+            st.session_state.graph = None
+            st.session_state.stats = None
+            st.session_state.processed = False
+
         # Save uploaded file temporarily
         temp_dir = Path("/tmp/sna_uploads")
         temp_dir.mkdir(exist_ok=True)
