@@ -13,16 +13,29 @@ from .base_extractor import BaseExtractor
 class DomainExtractor(BaseExtractor):
     """Extract domains from URLs in text."""
 
-    def __init__(self, strip_www: bool = True, strip_subdomain: bool = False):
+    # List of URL shortener domains to exclude
+    URL_SHORTENERS = {
+        't.co', 'bit.ly', 'tinyurl.com', 'goo.gl', 'ow.ly', 'is.gd',
+        'buff.ly', 'adf.ly', 'short.link', 'tiny.cc', 'cli.gs',
+        'youtu.be', 'fb.me', 'amzn.to', 'linktr.ee', 'rebrand.ly',
+        'cutt.ly', 'short.io', 'soo.gd', 'clicky.me', 'budurl.com',
+        'bc.vc', 'u.to', 'lnkd.in', 'db.tt', 'qr.ae', 'adf.ly',
+        'j.mp', 'scrnch.me', 'fiverr.com/s', 'vzturl.com',
+        'qr.net', 'snip.ly', 'flip.it', 'po.st', 'dlvr.it'
+    }
+
+    def __init__(self, strip_www: bool = True, strip_subdomain: bool = False, filter_shorteners: bool = True):
         """
         Initialize domain extractor.
 
         Args:
             strip_www: If True, removes 'www.' prefix from domains
             strip_subdomain: If True, extracts only the main domain (e.g., example.com from sub.example.com)
+            filter_shorteners: If True, filters out URL shortener domains (default: True)
         """
         self.strip_www = strip_www
         self.strip_subdomain = strip_subdomain
+        self.filter_shorteners = filter_shorteners
 
     def _extract_main_domain(self, domain: str) -> str:
         """
@@ -85,6 +98,10 @@ class DomainExtractor(BaseExtractor):
                 # Normalize to lowercase
                 domain = domain.lower()
 
+                # Filter out URL shorteners if enabled
+                if self.filter_shorteners and domain in self.URL_SHORTENERS:
+                    continue
+
                 # Avoid duplicates within the same text
                 if domain and domain not in seen_domains:
                     results.append({
@@ -139,5 +156,7 @@ class DomainExtractor(BaseExtractor):
         """
         return {
             'strip_www': self.strip_www,
-            'strip_subdomain': self.strip_subdomain
+            'strip_subdomain': self.strip_subdomain,
+            'filter_shorteners': self.filter_shorteners,
+            'num_shorteners_blocked': len(self.URL_SHORTENERS)
         }

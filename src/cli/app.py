@@ -405,8 +405,17 @@ def main():
                 value=True,
                 help="Convert www.example.com to example.com"
             )
+            filter_shorteners = st.checkbox(
+                "Filter URL shorteners",
+                value=True,
+                help="Automatically exclude URL shortener domains (t.co, bit.ly, goo.gl, etc.)"
+            )
             extractor_config['strip_www'] = strip_www
+            extractor_config['filter_shorteners'] = filter_shorteners
             entity_types_to_extract = ['DOMAIN']
+
+            if filter_shorteners:
+                st.caption("✓ Blocking 25+ URL shortener domains (t.co, bit.ly, goo.gl, etc.)")
 
         elif extraction_method_id == "keyword":
             # Method selection
@@ -814,20 +823,41 @@ def main():
         # Add URL field detection button for domain extraction
         if extraction_method_id == "domain":
             st.caption("🔍 URL Field Detection")
-            if st.button("🔎 Auto-detect expanded URL field", help="Automatically searches for fields containing expanded URLs (non-shortened). Checks nested JSON for 'expanded_url' fields (e.g., Twitter data), and uses dr.dk as a marker to identify the correct field. Once found, ALL URLs in that field will be used."):
-                # Find best URL field - use dr.dk as a marker to help identify the right field
-                # but accept ALL URLs from the identified field
-                url_field = _find_expanded_url_field(preview_df, text_col, target_domains=['dr.dk', 'www.dr.dk'])
-                if url_field and url_field != text_col:
-                    st.success(f"✅ Found expanded URL field: `{url_field}`")
-                    st.info(f"Switching from `{text_col}` to `{url_field}`")
-                    # Update the text column selection
-                    st.session_state.text_col_selection = list(preview_df.columns).index(url_field)
-                    st.rerun()
-                elif url_field == text_col:
-                    st.info(f"✅ Current field `{text_col}` already contains expanded URLs")
-                else:
-                    st.warning("⚠️ No better URL field found. Keeping current selection.")
+            st.caption("💡 For Twitter/X data with nested JSON, this will find the 'data' column containing expanded URLs")
+            if st.button("🔎 Auto-detect expanded URL field", help="Searches for fields with expanded URLs. Prioritizes nested 'expanded_url' fields (Twitter data) and fields containing full domain URLs."):
+                with st.spinner("Searching for expanded URL field..."):
+                    try:
+                        # Debug: Show current state
+                        st.write(f"Current text column: `{text_col}`")
+                        st.write(f"Available columns: {list(preview_df.columns)}")
+
+                        # Find best URL field - use dr.dk as a marker to help identify the right field
+                        # but accept ALL URLs from the identified field
+                        url_field = _find_expanded_url_field(preview_df, text_col, target_domains=['dr.dk', 'www.dr.dk'])
+
+                        st.write(f"Detection result: `{url_field}`")
+
+                        if url_field and url_field != text_col:
+                            st.success(f"✅ Found expanded URL field: `{url_field}`")
+                            st.info(f"📝 Note: Not all rows may contain URLs in this field. Domain extraction will process rows that have valid URLs.")
+                            st.info(f"Switching from `{text_col}` to `{url_field}`")
+                            # Update the text column selection
+                            try:
+                                new_index = list(preview_df.columns).index(url_field)
+                                st.write(f"New column index: {new_index}")
+                                st.session_state.text_col_selection = new_index
+                                st.rerun()
+                            except ValueError as ve:
+                                st.error(f"Column '{url_field}' not found in column list: {ve}")
+                        elif url_field == text_col:
+                            st.info(f"✅ Current field `{text_col}` already contains expanded URLs")
+                        else:
+                            st.warning("⚠️ No better URL field found. Keeping current selection.")
+                            st.info("💡 Tip: Make sure your data contains fields with expanded URLs or nested JSON with 'expanded_url' keys")
+                    except Exception as e:
+                        st.error(f"Error during URL field detection: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
 
         # Metadata column selection
         st.subheader("📊 Metadata Columns (Optional)")
