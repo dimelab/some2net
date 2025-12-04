@@ -318,22 +318,6 @@ def main():
             extractor_config['strip_www'] = strip_www
             entity_types_to_extract = ['DOMAIN']
 
-            # Add button to auto-detect expanded URL field
-            st.caption("🔍 URL Field Detection")
-            if st.button("🔎 Auto-detect expanded URL field", help="Search for a field containing non-shortened URLs (e.g., expanded URLs instead of t.co links)"):
-                # Find best URL field
-                url_field = _find_expanded_url_field(preview_df, text_col)
-                if url_field and url_field != text_col:
-                    st.success(f"✅ Found expanded URL field: `{url_field}`")
-                    st.info(f"Switching from `{text_col}` to `{url_field}`")
-                    # Update the text column selection
-                    st.session_state.text_col_selection = list(preview_df.columns).index(url_field)
-                    st.rerun()
-                elif url_field == text_col:
-                    st.info(f"✅ Current field `{text_col}` already contains expanded URLs")
-                else:
-                    st.warning("⚠️ No better URL field found. Keeping current selection.")
-
         elif extraction_method_id == "keyword":
             # Method selection
             keyword_method = st.radio(
@@ -736,6 +720,23 @@ def main():
         st.caption("Sample data with selected columns:")
         sample_display = preview_df[[author_col, text_col]].head(5)
         st.dataframe(sample_display, use_container_width=True)
+
+        # Add URL field detection button for domain extraction
+        if extraction_method_id == "domain":
+            st.caption("🔍 URL Field Detection")
+            if st.button("🔎 Auto-detect expanded URL field", help="Search for a field containing non-shortened URLs (e.g., expanded URLs instead of t.co links)"):
+                # Find best URL field
+                url_field = _find_expanded_url_field(preview_df, text_col)
+                if url_field and url_field != text_col:
+                    st.success(f"✅ Found expanded URL field: `{url_field}`")
+                    st.info(f"Switching from `{text_col}` to `{url_field}`")
+                    # Update the text column selection
+                    st.session_state.text_col_selection = list(preview_df.columns).index(url_field)
+                    st.rerun()
+                elif url_field == text_col:
+                    st.info(f"✅ Current field `{text_col}` already contains expanded URLs")
+                else:
+                    st.warning("⚠️ No better URL field found. Keeping current selection.")
 
         # Metadata column selection
         st.subheader("📊 Metadata Columns (Optional)")
