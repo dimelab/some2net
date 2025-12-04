@@ -31,6 +31,118 @@ from utils.exporters import export_all_formats
 from utils.visualizer import NetworkVisualizer
 
 
+def _find_expanded_url_field(df, current_text_col):
+    """
+    Find a field containing expanded/non-shortened URLs.
+
+    This function looks for fields that contain full URLs (not shortened ones like t.co)
+    by checking for:
+    1. Fields with 'url' in the name (but not current text column)
+    2. Fields containing URLs with longer domains (not url shorteners)
+    3. Higher ratio of non-shortened to shortened URLs
+
+    Args:
+        df: DataFrame to search
+        current_text_col: Currently selected text column
+
+    Returns:
+        str: Best URL field name, or None if none found
+    """
+    import re
+
+    # Common URL shortener domains to detect
+    url_shorteners = [
+        't.co', 'bit.ly', 'tinyurl.com', 'goo.gl', 'ow.ly', 'is.gd',
+        'buff.ly', 'adf.ly', 'short.link', 'tiny.cc', 'cli.gs',
+        'pic.twitter.com', 'youtu.be', 'fb.me', 'amzn.to'
+    ]
+
+    # Pattern to match URLs
+    url_pattern = re.compile(r'https?://[^\s]+', re.IGNORECASE)
+
+    # Find candidate URL fields
+    url_field_candidates = []
+
+    for col in df.columns:
+        col_lower = str(col).lower()
+
+        # Skip the current text column (we want to find a BETTER one)
+        if col == current_text_col:
+            continue
+
+        # Look for fields with 'url' in the name
+        if 'url' in col_lower or 'link' in col_lower or 'expanded' in col_lower:
+            url_field_candidates.append(col)
+
+    # If no obvious candidates, check all fields
+    if not url_field_candidates:
+        url_field_candidates = [col for col in df.columns if col != current_text_col]
+
+    # Score each candidate
+    best_field = None
+    best_score = -1
+
+    # Sample up to 100 rows for efficiency
+    sample_df = df.head(100)
+
+    for col in url_field_candidates:
+        try:
+            # Get non-null values and convert to string
+            values = sample_df[col].dropna().astype(str)
+
+            if len(values) == 0:
+                continue
+
+            # Count URLs and shortened URLs
+            total_urls = 0
+            shortened_urls = 0
+            total_url_length = 0
+
+            for val in values:
+                urls = url_pattern.findall(val)
+                if urls:
+                    total_urls += len(urls)
+                    for url in urls:
+                        total_url_length += len(url)
+                        # Check if it's a shortened URL
+                        if any(shortener in url.lower() for shortener in url_shorteners):
+                            shortened_urls += 1
+
+            if total_urls == 0:
+                continue
+
+            # Calculate score based on:
+            # 1. Ratio of non-shortened URLs (higher is better)
+            # 2. Average URL length (longer is better for expanded URLs)
+            # 3. Presence of 'url' in field name (bonus)
+
+            non_shortened_ratio = (total_urls - shortened_urls) / total_urls
+            avg_url_length = total_url_length / total_urls
+
+            # Normalize avg_url_length (typical shortened URL ~20-30 chars, expanded ~60-200 chars)
+            length_score = min(avg_url_length / 100.0, 1.0)
+
+            # Field name bonus
+            col_lower = str(col).lower()
+            name_bonus = 0.2 if any(word in col_lower for word in ['expand', 'full', 'unshorten']) else 0.1 if 'url' in col_lower else 0
+
+            # Combined score
+            score = (non_shortened_ratio * 0.5) + (length_score * 0.4) + name_bonus
+
+            if score > best_score:
+                best_score = score
+                best_field = col
+
+        except Exception:
+            continue
+
+    # Only return if we found a significantly better field (score > 0.3)
+    if best_score > 0.3:
+        return best_field
+
+    return None
+
+
 def main():
     """Main Streamlit application."""
     st.set_page_config(
@@ -206,6 +318,22 @@ def main():
             extractor_config['strip_www'] = strip_www
             entity_types_to_extract = ['DOMAIN']
 
+            # Add button to auto-detect expanded URL field
+            st.caption("🔍 URL Field Detection")
+            if st.button("🔎 Auto-detect expanded URL field", help="Search for a field containing non-shortened URLs (e.g., expanded URLs instead of t.co links)"):
+                # Find best URL field
+                url_field = _find_expanded_url_field(preview_df, text_col)
+                if url_field and url_field != text_col:
+                    st.success(f"✅ Found expanded URL field: `{url_field}`")
+                    st.info(f"Switching from `{text_col}` to `{url_field}`")
+                    # Update the text column selection
+                    st.session_state.text_col_selection = list(preview_df.columns).index(url_field)
+                    st.rerun()
+                elif url_field == text_col:
+                    st.info(f"✅ Current field `{text_col}` already contains expanded URLs")
+                else:
+                    st.warning("⚠️ No better URL field found. Keeping current selection.")
+
         elif extraction_method_id == "keyword":
             # Method selection
             keyword_method = st.radio(
@@ -254,6 +382,25 @@ def main():
                 )
                 extractor_config['max_phrase_length'] = max_phrase_length
                 extractor_config['use_tfidf'] = use_tfidf_weighting
+            else:  # tfidf
+                include_bigrams = st.checkbox(
+                    "Include bigrams (2-word phrases)",
+                    value=False,
+                    help="Extract both single words and 2-word phrases (e.g., 'machine learning')"
+                )
+                idf_weight = st.slider(
+                    "IDF weight coefficient",
+                    min_value=0.0,
+                    max_value=2.0,
+                    value=1.0,
+                    step=0.1,
+                    help="Controls balance between term frequency (TF) and inverse document frequency (IDF):\n"
+                         "• 0.0 = Pure TF (emphasize frequent terms)\n"
+                         "• 1.0 = Standard TF-IDF (balanced)\n"
+                         "• >1.0 = Emphasize distinctive/rare terms"
+                )
+                extractor_config['include_bigrams'] = include_bigrams
+                extractor_config['idf_weight'] = idf_weight
 
             extractor_config['method'] = keyword_method
             extractor_config['min_keywords'] = min_keywords

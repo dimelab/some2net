@@ -84,7 +84,9 @@ class KeywordExtractor(BaseExtractor):
         min_char_length: int = 3,
         use_tfidf: bool = True,
         filter_common_words: bool = True,
-        method: str = 'rake'
+        method: str = 'rake',
+        include_bigrams: bool = False,
+        idf_weight: float = 1.0
     ):
         """
         Initialize keyword extractor using RAKE or TF-IDF.
@@ -104,7 +106,13 @@ class KeywordExtractor(BaseExtractor):
             filter_common_words: Whether to filter very common single-word keywords (default: True)
             method: Extraction method - 'rake' (default) or 'tfidf'
                 - 'rake': Uses RAKE algorithm for phrase extraction, optionally with TF-IDF weighting
-                - 'tfidf': Uses standard TF-IDF on individual words
+                - 'tfidf': Uses standard TF-IDF on individual words (or words + bigrams if include_bigrams=True)
+            include_bigrams: Whether to include bigrams (2-word phrases) in TF-IDF extraction (default: False, TF-IDF only)
+            idf_weight: Weight coefficient for IDF component (default: 1.0, TF-IDF only)
+                - Higher values (>1.0) emphasize distinctive/rare terms
+                - Lower values (<1.0) emphasize frequent terms
+                - 0.0 means pure TF (no IDF), 1.0 is standard TF-IDF
+                Formula: TF * (IDF ^ idf_weight)
         """
         # Validate method parameter
         if method not in ['rake', 'tfidf']:
@@ -128,6 +136,8 @@ class KeywordExtractor(BaseExtractor):
         self.min_char_length = min_char_length
         self.use_tfidf = use_tfidf
         self.filter_common_words = filter_common_words
+        self.include_bigrams = include_bigrams
+        self.idf_weight = idf_weight
 
         # Storage for author texts (first pass)
         self.author_texts = defaultdict(list)
@@ -283,7 +293,7 @@ class KeywordExtractor(BaseExtractor):
         all_author_texts: Optional[Dict[str, List[str]]] = None
     ) -> List[Dict]:
         """
-        Extract keywords using standard TF-IDF on individual words.
+        Extract keywords using standard TF-IDF on individual words and optionally bigrams.
 
         Args:
             author: Author identifier
@@ -315,10 +325,28 @@ class KeywordExtractor(BaseExtractor):
             logger.warning(f"No valid words for {author} after filtering")
             return []
 
+        # Build list of terms (unigrams and optionally bigrams)
+        terms = []
+
+        # Add unigrams (single words)
+        terms.extend(filtered_words)
+
+        # Add bigrams if enabled
+        if self.include_bigrams:
+            bigrams = [
+                f"{filtered_words[i]} {filtered_words[i+1]}"
+                for i in range(len(filtered_words) - 1)
+            ]
+            terms.extend(bigrams)
+
+        if not terms:
+            logger.warning(f"No valid terms for {author} after processing")
+            return []
+
         # Calculate term frequency (TF)
-        word_counts = Counter(filtered_words)
-        total_words = len(filtered_words)
-        tf_scores = {word: count / total_words for word, count in word_counts.items()}
+        term_counts = Counter(terms)
+        total_terms = len(terms)
+        tf_scores = {term: count / total_terms for term, count in term_counts.items()}
 
         # Calculate IDF if we have multiple authors
         idf_scores = {}
@@ -327,47 +355,69 @@ class KeywordExtractor(BaseExtractor):
             df = Counter()
             for other_author, texts in all_author_texts.items():
                 other_text = ' '.join(texts).lower()
-                other_words = set(re.findall(r'\b[a-z\u00C0-\u017F]+\b', other_text))
-                for word in other_words:
-                    if word in word_counts:  # Only calculate IDF for words in current author's text
-                        df[word] += 1
+                other_words = re.findall(r'\b[a-z\u00C0-\u017F]+\b', other_text)
+                # Filter other author's words
+                other_filtered = [
+                    w for w in other_words
+                    if len(w) >= self.min_char_length and w not in stopwords
+                ]
+
+                # Build set of terms for this other author
+                other_terms = set(other_filtered)
+
+                # Add bigrams if enabled
+                if self.include_bigrams:
+                    other_bigrams = [
+                        f"{other_filtered[i]} {other_filtered[i+1]}"
+                        for i in range(len(other_filtered) - 1)
+                    ]
+                    other_terms.update(other_bigrams)
+
+                # Count document frequency
+                for term in other_terms:
+                    if term in term_counts:  # Only calculate IDF for terms in current author's text
+                        df[term] += 1
 
             num_docs = len(all_author_texts)
-            for word in word_counts.keys():
-                doc_freq = df.get(word, 1)
-                idf_scores[word] = math.log(num_docs / doc_freq)
+            for term in term_counts.keys():
+                doc_freq = df.get(term, 1)
+                idf_scores[term] = math.log(num_docs / doc_freq)
         else:
             # Single author or no IDF calculation - use TF only
-            idf_scores = {word: 1.0 for word in word_counts.keys()}
+            idf_scores = {term: 1.0 for term in term_counts.keys()}
 
-        # Calculate TF-IDF scores
+        # Calculate TF-IDF scores with weighted IDF component
+        # Formula: TF * (IDF ^ idf_weight)
+        # idf_weight = 0.0 -> pure TF (no IDF)
+        # idf_weight = 1.0 -> standard TF-IDF
+        # idf_weight > 1.0 -> emphasize distinctive terms more
         tfidf_scores = {
-            word: tf_scores[word] * idf_scores[word]
-            for word in word_counts.keys()
+            term: tf_scores[term] * (idf_scores[term] ** self.idf_weight)
+            for term in term_counts.keys()
         }
 
         # Sort by TF-IDF score
-        sorted_words = sorted(tfidf_scores.items(), key=lambda x: x[1], reverse=True)
+        sorted_terms = sorted(tfidf_scores.items(), key=lambda x: x[1], reverse=True)
 
         # Get top keywords
-        num_keywords = min(len(sorted_words), self.max_keywords)
-        top_words = sorted_words[:num_keywords]
+        num_keywords = min(len(sorted_terms), self.max_keywords)
+        top_terms = sorted_terms[:num_keywords]
 
         # Ensure we have at least min_keywords if possible
-        if len(top_words) < self.min_keywords and len(sorted_words) >= self.min_keywords:
-            top_words = sorted_words[:self.min_keywords]
+        if len(top_terms) < self.min_keywords and len(sorted_terms) >= self.min_keywords:
+            top_terms = sorted_terms[:self.min_keywords]
 
         # Normalize scores to 0-1 range
-        if top_words:
-            max_score = top_words[0][1]
-            min_score = top_words[-1][1] if len(top_words) > 1 else 0
+        if top_terms:
+            max_score = top_terms[0][1]
+            min_score = top_terms[-1][1] if len(top_terms) > 1 else 0
             score_range = max_score - min_score if max_score > min_score else 1.0
 
             results = []
-            for word, score in top_words:
+            for term, score in top_terms:
                 normalized_score = (score - min_score) / score_range if score_range > 0 else 0.5
                 results.append({
-                    'text': word,
+                    'text': term,
                     'type': 'KEYWORD',
                     'score': float(normalized_score)
                 })
@@ -717,7 +767,9 @@ class KeywordExtractor(BaseExtractor):
                 'use_tfidf': self.use_tfidf
             })
         else:  # tfidf
-            config['algorithm'] = 'TF-IDF'
+            config['algorithm'] = 'TF-IDF' + (' + Bigrams' if self.include_bigrams else '')
+            config['include_bigrams'] = self.include_bigrams
+            config['idf_weight'] = self.idf_weight
 
         return config
 

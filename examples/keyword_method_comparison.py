@@ -65,12 +65,13 @@ def main():
                 use_tfidf=True        # Apply TF-IDF weighting for distinctiveness
             )
         else:
-            print("\nTF-IDF extracts individual words weighted by statistical importance.")
+            print("\nTF-IDF extracts individual words (and optionally bigrams) weighted by statistical importance.")
             print("Good for: Finding distinctive terms, cross-author comparison")
             extractor = KeywordExtractor(
                 method='tfidf',
                 min_keywords=5,
-                max_keywords=8
+                max_keywords=8,
+                include_bigrams=True  # Set to False for only single words
             )
 
         # Collect texts for two authors
@@ -98,11 +99,12 @@ def main():
     print("  ✗ Requires rake-nltk package")
 
     print("\nTF-IDF:")
-    print("  ✓ Extracts individual words")
+    print("  ✓ Extracts individual words (and optionally bigrams)")
     print("  ✓ Statistically sound (classic IR approach)")
     print("  ✓ Better for finding distinctive/unique terms per author")
     print("  ✓ No external dependencies (built-in)")
-    print("  ✗ Misses compound concepts")
+    print("  ✓ Can include bigrams for 2-word phrases")
+    print("  ✗ Misses longer compound concepts (3+ words)")
 
     print("\nRecommendations:")
     print("  - Use RAKE for topic modeling and phrase extraction")

@@ -410,6 +410,105 @@ class TestTfidfMethod:
         # Climate should be distinctive for user2
         assert 'climate' in user2_keywords
 
+    def test_tfidf_with_bigrams(self):
+        """Test that TF-IDF can extract bigrams when enabled."""
+        extractor = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=10,
+            method='tfidf',
+            include_bigrams=True
+        )
+
+        extractor.collect_texts("@user1", [
+            "machine learning algorithms",
+            "deep learning neural networks",
+            "machine learning applications"
+        ])
+
+        keywords = extractor.extract_per_author("@user1")
+        keyword_texts = [kw['text'] for kw in keywords]
+
+        # Should have both unigrams and bigrams
+        unigrams = [kw for kw in keyword_texts if ' ' not in kw]
+        bigrams = [kw for kw in keyword_texts if ' ' in kw]
+
+        assert len(unigrams) > 0, "Should have unigrams"
+        assert len(bigrams) > 0, "Should have bigrams"
+
+        # Should extract "machine learning" as a bigram
+        assert any('machine learning' in kw for kw in keyword_texts)
+
+    def test_tfidf_without_bigrams(self):
+        """Test that TF-IDF only extracts unigrams when bigrams are disabled."""
+        extractor = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=10,
+            method='tfidf',
+            include_bigrams=False
+        )
+
+        extractor.collect_texts("@user1", [
+            "machine learning algorithms",
+            "deep learning neural networks",
+            "machine learning applications"
+        ])
+
+        keywords = extractor.extract_per_author("@user1")
+        keyword_texts = [kw['text'] for kw in keywords]
+
+        # Should only have unigrams
+        bigrams = [kw for kw in keyword_texts if ' ' in kw]
+        assert len(bigrams) == 0, "Should not have bigrams when include_bigrams=False"
+
+    def test_tfidf_idf_weight_coefficient(self):
+        """Test that IDF weight coefficient affects keyword ranking."""
+        # User1 frequently uses "python" (distinctive)
+        # Both users use "programming" (common)
+        texts_user1 = [
+            "python python python programming",
+            "python code development",
+            "python programming language"
+        ]
+        texts_user2 = [
+            "java programming development",
+            "java code implementation"
+        ]
+
+        # Test with IDF weight = 0.0 (pure TF, emphasizes frequent terms)
+        extractor_tf = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=5,
+            method='tfidf',
+            idf_weight=0.0
+        )
+        extractor_tf.collect_texts("@user1", texts_user1)
+        extractor_tf.collect_texts("@user2", texts_user2)
+        results_tf = extractor_tf.extract_all_authors(show_progress=False)
+
+        # Test with IDF weight = 2.0 (high IDF, emphasizes distinctive terms)
+        extractor_high_idf = KeywordExtractor(
+            min_keywords=3,
+            max_keywords=5,
+            method='tfidf',
+            idf_weight=2.0
+        )
+        extractor_high_idf.collect_texts("@user1", texts_user1)
+        extractor_high_idf.collect_texts("@user2", texts_user2)
+        results_high_idf = extractor_high_idf.extract_all_authors(show_progress=False)
+
+        # Get top keywords
+        top_tf = [kw['text'] for kw in results_tf['@user1'][:3]]
+        top_high_idf = [kw['text'] for kw in results_high_idf['@user1'][:3]]
+
+        # "python" should be top in both (very frequent AND distinctive)
+        assert top_tf[0] == 'python'
+        assert top_high_idf[0] == 'python'
+
+        # With low IDF weight, "programming" (common) should rank higher
+        # With high IDF weight, distinctive terms should rank higher
+        # The rankings should differ based on IDF weight
+        assert top_tf != top_high_idf or len(set(top_tf) & set(top_high_idf)) < 3
+
 
 class TestMethodComparison:
     """Test comparison between RAKE and TF-IDF methods."""
