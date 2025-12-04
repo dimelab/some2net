@@ -31,24 +31,30 @@ from utils.exporters import export_all_formats
 from utils.visualizer import NetworkVisualizer
 
 
-def _find_expanded_url_field(df, current_text_col):
+def _find_expanded_url_field(df, current_text_col, target_domains=None):
     """
     Find a field containing expanded/non-shortened URLs.
 
     This function looks for fields that contain full URLs (not shortened ones like t.co)
     by checking for:
-    1. Fields with 'url' in the name (but not current text column)
-    2. Fields containing URLs with longer domains (not url shorteners)
-    3. Higher ratio of non-shortened to shortened URLs
+    1. PRIORITY: Fields containing specific target domains (e.g., dr.dk)
+    2. Fields with 'expanded_url' in the name (common in Twitter data)
+    3. Fields containing URLs with longer domains (not url shorteners)
+    4. Higher ratio of non-shortened to shortened URLs
 
     Args:
         df: DataFrame to search
         current_text_col: Currently selected text column
+        target_domains: Optional list of target domains to prioritize (e.g., ['dr.dk', 'nytimes.com'])
 
     Returns:
         str: Best URL field name, or None if none found
     """
     import re
+    import json
+
+    if target_domains is None:
+        target_domains = []
 
     # Common URL shortener domains to detect
     url_shorteners = [
@@ -60,7 +66,94 @@ def _find_expanded_url_field(df, current_text_col):
     # Pattern to match URLs
     url_pattern = re.compile(r'https?://[^\s]+', re.IGNORECASE)
 
-    # Find candidate URL fields
+    # Sample up to 100 rows for efficiency
+    sample_df = df.head(100)
+
+    # STEP 1: Try to find specific nested field with expanded URLs (e.g., Twitter's data.legacy.entities.urls[].expanded_url)
+    # Check if we have nested JSON data
+    for col in df.columns:
+        if col == current_text_col:
+            continue
+
+        try:
+            # Check if column contains JSON objects
+            # Search through multiple rows to find the pattern (some rows may not have the field)
+            found_expanded_url_field = False
+
+            for _, row_val in sample_df[col].dropna().head(100).items():
+                if not row_val:
+                    continue
+
+                # Try to parse if string
+                if isinstance(row_val, str):
+                    try:
+                        row_val = json.loads(row_val)
+                    except:
+                        continue
+
+                if not isinstance(row_val, dict):
+                    continue
+
+                # Look for nested expanded_url patterns
+                def find_expanded_urls(obj, path=""):
+                    """Recursively search for expanded_url fields."""
+                    if isinstance(obj, dict):
+                        for key, value in obj.items():
+                            new_path = f"{path}.{key}" if path else key
+                            if 'expanded_url' in key.lower():
+                                # Found an expanded_url field!
+                                # Check if it contains actual URLs (not just the key name)
+                                if isinstance(value, str) and url_pattern.match(value):
+                                    # Verify it's NOT a shortened URL
+                                    if not any(shortener in value.lower() for shortener in url_shorteners):
+                                        return new_path
+                                elif isinstance(value, list) and value:
+                                    # Check first item in list
+                                    if isinstance(value[0], str) and url_pattern.match(value[0]):
+                                        if not any(shortener in value[0].lower() for shortener in url_shorteners):
+                                            return new_path
+                            result = find_expanded_urls(value, new_path)
+                            if result:
+                                return result
+                    elif isinstance(obj, list) and obj:
+                        return find_expanded_urls(obj[0], f"{path}[0]")
+                    return None
+
+                expanded_url_path = find_expanded_urls(row_val)
+                if expanded_url_path:
+                    # Found a nested expanded_url! Return this column
+                    # This column will accept ALL URLs in the expanded_url field
+                    found_expanded_url_field = True
+                    break
+
+            if found_expanded_url_field:
+                return col
+
+        except:
+            continue
+
+    # STEP 2: Priority search - look for fields containing target domains
+    if target_domains:
+        for col in df.columns:
+            if col == current_text_col:
+                continue
+
+            try:
+                values = sample_df[col].dropna().astype(str)
+                if len(values) == 0:
+                    continue
+
+                # Check if any value contains target domains
+                for val in values:
+                    urls = url_pattern.findall(val)
+                    for url in urls:
+                        if any(domain in url.lower() for domain in target_domains):
+                            # Found target domain! Return immediately
+                            return col
+            except:
+                continue
+
+    # STEP 3: Standard search - find candidate URL fields
     url_field_candidates = []
 
     for col in df.columns:
@@ -78,12 +171,9 @@ def _find_expanded_url_field(df, current_text_col):
     if not url_field_candidates:
         url_field_candidates = [col for col in df.columns if col != current_text_col]
 
-    # Score each candidate
+    # STEP 4: Score each candidate
     best_field = None
     best_score = -1
-
-    # Sample up to 100 rows for efficiency
-    sample_df = df.head(100)
 
     for col in url_field_candidates:
         try:
@@ -724,9 +814,10 @@ def main():
         # Add URL field detection button for domain extraction
         if extraction_method_id == "domain":
             st.caption("🔍 URL Field Detection")
-            if st.button("🔎 Auto-detect expanded URL field", help="Search for a field containing non-shortened URLs (e.g., expanded URLs instead of t.co links)"):
-                # Find best URL field
-                url_field = _find_expanded_url_field(preview_df, text_col)
+            if st.button("🔎 Auto-detect expanded URL field", help="Automatically searches for fields containing expanded URLs (non-shortened). Checks nested JSON for 'expanded_url' fields (e.g., Twitter data), and uses dr.dk as a marker to identify the correct field. Once found, ALL URLs in that field will be used."):
+                # Find best URL field - use dr.dk as a marker to help identify the right field
+                # but accept ALL URLs from the identified field
+                url_field = _find_expanded_url_field(preview_df, text_col, target_domains=['dr.dk', 'www.dr.dk'])
                 if url_field and url_field != text_col:
                     st.success(f"✅ Found expanded URL field: `{url_field}`")
                     st.info(f"Switching from `{text_col}` to `{url_field}`")
